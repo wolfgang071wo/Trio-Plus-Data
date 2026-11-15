@@ -3,6 +3,7 @@
     trio info SONG... [--json]
     trio extract SONG... [-o DIR] [--tracks main,overdub] [--trim] [--json]
     trio build -o OUT [--name NAME] PART=SONG:PART ...
+    trio scan TRIOPLUS.DAT [--extract DIR] [--json]
     trio rename SONG NAME -o OUT
 
 Nothing is ever written to an input file, and existing outputs are only
@@ -148,6 +149,37 @@ def cmd_build(args) -> int:
     return 0
 
 
+def cmd_scan(args) -> int:
+    from .scan import scan
+
+    outdir = Path(args.extract) if args.extract else None
+    if outdir:
+        outdir.mkdir(parents=True, exist_ok=True)
+    found = []
+    for n, (hit, data) in enumerate(scan(args.container), start=1):
+        entry = {**hit.__dict__}
+        if outdir and data is not None:
+            safe = re.sub(r"[^A-Za-z0-9 _.@+-]", "_", hit.name).strip() or "song"
+            out = outdir / f"{n:02d} {safe}.tlsd"
+            _check_output(out, [args.container], args.force)
+            out.write_bytes(data)
+            entry["written"] = str(out)
+        found.append(entry)
+        if not args.json:
+            state = "ok" if hit.valid else f"skipped: {hit.reason}"
+            parts = ",".join(map(str, hit.trained_parts)) or "-"
+            line = f"{n:2d}  @{hit.offset:#012x}  {hit.size:>10} B  parts {parts:<9}  \"{hit.name}\"  {state}"
+            if "written" in entry:
+                line += f"  -> {entry['written']}"
+            print(line)
+    if args.json:
+        print(json.dumps(found, indent=2))
+    elif not found:
+        print(f"{args.container}: no TRIO+ song headers found", file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_rename(args) -> int:
     song = Song.load(args.song)
     song.name = args.name
@@ -193,6 +225,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--name", help="song name (default: output file name)")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_build)
+
+    p = common(sub.add_parser(
+        "scan",
+        help="find songs inside TRIOPLUS.DAT or an SD card image",
+        description="Search a container file for TRIO+ song headers and optionally write each "
+                    "complete song out as a .tlsd file. The container is only read.",
+    ))
+    p.add_argument("container", type=Path)
+    p.add_argument("--extract", metavar="DIR", help="write every valid song to DIR as .tlsd")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=cmd_scan)
 
     p = common(sub.add_parser("rename", help="write a copy of a song with a new name"))
     p.add_argument("song", type=Path)

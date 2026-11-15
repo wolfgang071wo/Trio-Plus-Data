@@ -26,7 +26,14 @@ trio extract SONG.tlsd --tracks main --trim
 
 trio build -o New.tlsd 1=verse.tlsd:2 2=chorus.tlsd:1   # DST=FILE:SRC
 trio rename SONG.tlsd "Riff in A" -o Riff.tlsd
+
+trio scan TRIOPLUS.DAT                   # list songs inside a container file
+trio scan TRIOPLUS.DAT --extract songs/  # and write each one out as .tlsd
 ```
+
+`scan` searches any file (the `TRIOPLUS.DAT` on the SD card, or a raw card
+image) for song headers and cuts out every song that is stored in one piece.
+The container is only read, never written.
 
 `build` starts from an empty song and fills the listed parts, so it also
 covers reordering, copying and deleting parts. Every command accepts

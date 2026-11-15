@@ -146,3 +146,22 @@ def test_cli_build_and_rename(tmp_path):
     assert main(["rename", str(out), "X", "-o", str(out), "--force"]) == 2
     assert main(["build", "-o", str(tmp_path / "e.tlsd"), f"1={SONG_01}:5"]) == 2
     assert main(["build", "-o", str(tmp_path / "d.tlsd"), f"1={SONG_01}:1", f"1={SONG_01}:2"]) == 2
+
+
+def test_cli_scan_container(tmp_path, capsys):
+    a, b = SONG_01.read_bytes(), SONG_05.read_bytes()
+    container = tmp_path / "TRIOPLUS.DAT"
+    container.write_bytes(b"\xff" * 4096 + a + b"\x00" * 50000 + b + b[:200000])
+    out = tmp_path / "songs"
+    assert main(["scan", "--json", "--extract", str(out), str(container)]) == 0
+    hits = json.loads(capsys.readouterr().out)
+    assert [h["valid"] for h in hits] == [True, True, False]
+    assert hits[0]["offset"] == 4096
+    written = sorted(out.glob("*.tlsd"))
+    assert [p.read_bytes() for p in written] == [a, b]
+
+
+def test_cli_scan_nothing_found(tmp_path):
+    empty = tmp_path / "x.dat"
+    empty.write_bytes(b"\x00" * 200000)
+    assert main(["scan", str(empty)]) == 1
