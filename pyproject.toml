@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trioplus"
+dynamic = ["version"]
+description = "Read, extract and rebuild DigiTech TRIO+ song files (.tlsd)"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+trio = "trioplus.cli:main"
+
+[tool.setuptools]
+packages = ["trioplus"]
+
+[tool.setuptools.dynamic]
+version = { attr = "trioplus.__version__" }
+
+[tool.setuptools.package-data]
+trioplus = ["data/*.tlsd"]

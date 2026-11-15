@@ -1,4 +1,104 @@
 # Trio-Plus-Data
+
+> **Fork note.** This fork adds `trioplus`, a small library and a
+> non-interactive command line built on the format knowledge collected in
+> this repository. The original tool and GUI are unchanged and documented
+> further below.
+
+## `trioplus`: library and command line
+
+Pure Python 3.9+, no dependencies, runs on Linux, macOS, Windows and a
+Raspberry Pi.
+
+```sh
+pip install .            # installs the `trio` command
+python -m trioplus ...   # or run it without installing
+```
+
+### Commands
+
+```sh
+trio info SONG.tlsd ...                  # parts, track lengths, band settings
+trio info --json SONG.tlsd               # same, machine readable
+
+trio extract SONG.tlsd ... -o wavs/      # one WAV per recorded track
+trio extract SONG.tlsd --tracks main --trim
+
+trio build -o New.tlsd 1=verse.tlsd:2 2=chorus.tlsd:1   # DST=FILE:SRC
+trio rename SONG.tlsd "Riff in A" -o Riff.tlsd
+```
+
+`build` starts from an empty song and fills the listed parts, so it also
+covers reordering, copying and deleting parts. Every command accepts
+`--json`. Inputs are never modified: outputs must be new files, and existing
+files are only replaced with `--force`.
+
+### Library
+
+```python
+from trioplus import Song
+
+song = Song.load("05.tlsd")
+for part in song.parts:
+    if part.trained:
+        print(part.number, part.describe()["tracks"])
+
+new = Song.empty()
+new.set_part(1, song.part(4))
+new.name = "Outro first"
+new.save("Outro first.tlsd")
+```
+
+### File format
+
+| Region | Offset | Size |
+|---|---|---|
+| Global header | `0x00000` | 2,352 B |
+| Part block A ×5 (looper/band settings) | `0x00930` | 16,384 B each |
+| Part block B ×5 (learned band part) | `0x14930` | 10,752 B each |
+| Audio area, one region per trained part | `0x21B30` | sum of part lengths |
+
+* Part lengths (u32 at 1300, 1304, …, 1316) are **region sizes in bytes**,
+  not samples. A region interleaves two tracks in 32 KB chunks: odd chunks
+  are the first recording (`main`), even chunks the overdub slot
+  (`overdub`). Each track is 16-bit mono PCM at 44.1 kHz, so a track lasts
+  roughly `part_length / 4 / 44100` seconds.
+* Bookkeeping fields rewritten on save: file size (u32 at 544), file size −
+  1192 (632, 1320), part ends − 1192 (1248, 1256, 1264, 1272).
+* Song name: NUL-terminated ASCII at 1332, 128-byte field.
+* The 10,752-byte block B size matches the header values at 1232/1236
+  (10,752 and 5 × 10,752), just as 1216/1220 hold 16,384 and 5 × 16,384 for
+  block A. `trioplus` therefore copies both whole blocks when moving a part.
+  The original tool copies only the first 20 bytes of block B.
+* Band fields in block A (`bass_mode`, `genre`, `style`, `alt_time`) are
+  taken from [freimann/trio-updater](https://github.com/freimann/trio-updater)
+  and are provisional.
+
+Open question, as already noted in the 2017-05-24 entry below: which of the
+two interleaved tracks the pedal is currently playing (it might keep one as
+an undo layer). In sample `05.tlsd` the two tracks correlate strongly, which
+fits "one slot holds the mix, the other the previous state". `trioplus`
+exports both and names them by slot, not by meaning.
+
+### Tests
+
+```sh
+pip install pytest && pytest
+```
+
+Every sample file in this repository round-trips byte for byte, and part
+detection and extracted audio are checked against the original tool.
+
+### Writing to the pedal
+
+Files built with `trio build` are structurally valid and pass the tests,
+but they have **not yet been tested on a pedal**. Keep a copy of your SD
+card before you load them.
+
+---
+
+## Original README
+
 current version: release 0.80 as of 2018-01-09<br>
 <i> current development under 'Trio+Tool' branch</i><br>
 <i> updating the Trio+ hardware with 'TrioUpdaterInstaller_v2.0.2.exe' from Digitech website might be necessary</i><br>
