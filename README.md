@@ -27,13 +27,16 @@ trio extract SONG.tlsd --tracks main --trim
 trio build -o New.tlsd 1=verse.tlsd:2 2=chorus.tlsd:1   # DST=FILE:SRC
 trio rename SONG.tlsd "Riff in A" -o Riff.tlsd
 
-trio scan TRIOPLUS.DAT                   # list songs inside a container file
-trio scan TRIOPLUS.DAT --extract songs/  # and write each one out as .tlsd
+trio card TRIOPLUS.DAT                   # recorded parts on the SD card file
+trio card TRIOPLUS.DAT --extract songs/  # write them out as .tlsd, no TRIO Manager needed
+trio scan IMAGE --extract songs/         # find .tlsd songs embedded in any file
 ```
 
-`scan` searches any file (the `TRIOPLUS.DAT` on the SD card, or a raw card
-image) for song headers and cuts out every song that is stored in one piece.
-The container is only read, never written.
+`card` reads the `TRIOPLUS.DAT` container on the SD card directly; the
+layout is documented in `trioplus/card.py`. Audio and both settings blocks
+of every part come out byte-identical to a TRIO Manager export. Not yet
+known is which song owns which audio slots, so songs are written per group
+of five slots (`Slots 00-04.tlsd`, ...). Both commands only read their input.
 
 `build` starts from an empty song and fills the listed parts, so it also
 covers reordering, copying and deleting parts. Every command accepts

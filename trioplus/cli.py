@@ -3,7 +3,8 @@
     trio info SONG... [--json]
     trio extract SONG... [-o DIR] [--tracks main,overdub] [--trim] [--json]
     trio build -o OUT [--name NAME] PART=SONG:PART ...
-    trio scan TRIOPLUS.DAT [--extract DIR] [--json]
+    trio card TRIOPLUS.DAT [--extract DIR] [--json]
+    trio scan IMAGE [--extract DIR] [--json]
     trio rename SONG NAME -o OUT
 
 Nothing is ever written to an input file, and existing outputs are only
@@ -180,6 +181,53 @@ def cmd_scan(args) -> int:
     return 0
 
 
+def cmd_card(args) -> int:
+    from .card import Card
+
+    outdir = Path(args.extract) if args.extract else None
+    report = {"file": str(args.card), "song_names": [], "groups": []}
+    with Card(args.card) as card:
+        report["song_names"] = card.song_names()
+        if outdir:
+            outdir.mkdir(parents=True, exist_ok=True)
+        for g, group in enumerate(card.groups()):
+            used = [s for s in group if s.present]
+            if not used:
+                continue
+            first, last = group[0].index, group[-1].index
+            entry = {
+                "slots": [first, last],
+                "parts": [{"part": n, "slot": s.index, "region_bytes": s.region_bytes}
+                          for n, s in enumerate(group, start=1) if s.present],
+            }
+            if outdir:
+                label = f"Slots {first:02d}-{last:02d}"
+                out = outdir / f"{label}.tlsd"
+                _check_output(out, [args.card], args.force)
+                song = card.song_from_group(group, label)
+                data = song.to_bytes()
+                Song.from_bytes(data)
+                out.write_bytes(data)
+                entry["written"] = str(out)
+            report["groups"].append(entry)
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+        return 0
+    print(f"{args.card}: songs on card: {', '.join(n for n in report['song_names'] if n)}")
+    if not report["groups"]:
+        print("no recorded parts found")
+        return 1
+    for e in report["groups"]:
+        parts = ", ".join(f"part {p['part']} {p['region_bytes'] / 4 / 44100:.1f} s" for p in e["parts"])
+        line = f"  slots {e['slots'][0]:2d}-{e['slots'][1]:2d}: {parts}"
+        if "written" in e:
+            line += f"  -> {e['written']}"
+        print(line)
+    print("note: which song a slot group belongs to is not known yet, see trioplus/card.py")
+    return 0
+
+
 def cmd_rename(args) -> int:
     song = Song.load(args.song)
     song.name = args.name
@@ -236,6 +284,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--extract", metavar="DIR", help="write every valid song to DIR as .tlsd")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_scan)
+
+    p = common(sub.add_parser(
+        "card",
+        help="read recorded parts straight from TRIOPLUS.DAT",
+        description="List the recorded part slots in a TRIO+ card file and optionally write "
+                    "them out as .tlsd songs (one per group of five slots). Read-only.",
+    ))
+    p.add_argument("card", type=Path)
+    p.add_argument("--extract", metavar="DIR", help="write each group with audio to DIR as .tlsd")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=cmd_card)
 
     p = common(sub.add_parser("rename", help="write a copy of a song with a new name"))
     p.add_argument("song", type=Path)

@@ -165,3 +165,38 @@ def test_cli_scan_nothing_found(tmp_path):
     empty = tmp_path / "x.dat"
     empty.write_bytes(b"\x00" * 200000)
     assert main(["scan", str(empty)]) == 1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a sparse 3 GB file")
+def test_card_container(tmp_path):
+    from trioplus import card as C
+
+    src = Song.load(SONG_05)
+    size = C.RECORD_TABLE + 2 * C.NUM_SLOTS * C.RECORD_STRIDE + 4096 + C.NUM_SLOTS * C.AUDIO_SLOT
+    path = tmp_path / "TRIOPLUS.DAT"
+    with open(path, "wb") as f:
+        f.truncate(size)
+        f.write(b"TLSD\x00\x00\x00\x00Trio+ Card")
+        for i in range(C.NUM_SONGS):
+            f.seek(C.SONG_TABLE + i * C.SONG_STRIDE)
+            f.write((0x0303).to_bytes(4, "little") + f"Song {i + 1:02d}".encode())
+        empty = Song.empty().part(5)
+        base = size - C.NUM_SLOTS * C.AUDIO_SLOT
+        for j in range(C.NUM_SLOTS):
+            p = src.parts[j - 5] if 5 <= j < 10 else empty  # second group holds the song
+            f.seek(C.RECORD_TABLE + j * C.RECORD_STRIDE)
+            f.write(p.block_a)
+            f.seek(C.RECORD_TABLE + (C.NUM_SLOTS + j) * C.RECORD_STRIDE)
+            f.write(p.block_b)
+            if p.trained:
+                f.seek(base + j * C.AUDIO_SLOT + C.AUDIO_LEAD)
+                f.write(p.region)
+
+    out = tmp_path / "out"
+    assert main(["card", "--extract", str(out), str(path)]) == 0
+    got = Song.load(out / "Slots 05-09.tlsd")
+    for a, b in zip(src.parts, got.parts):
+        assert (a.region, a.block_a, a.block_b) == (b.region, b.block_a, b.block_b)
+    with C.Card(path) as card:
+        assert card.song_names()[2] == "Song 03"
+        assert [s.index for s in card.slots() if s.present] == [5, 6, 7, 8]
