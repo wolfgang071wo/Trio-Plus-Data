@@ -44,6 +44,21 @@ covers reordering, copying and deleting parts. Every command accepts
 `--json`. Inputs are never modified: outputs must be new files, and existing
 files are only replaced with `--force`.
 
+### App (web interface)
+
+```sh
+trio gui                       # or: python -m trioplus.gui
+trio gui E:\TRIOPLUS.DAT       # open a card right away
+trio gui --host 0.0.0.0        # reachable from a tablet in the same network
+```
+
+A small local server opens the TRIO Tool in the browser: the 12 songs of a
+card or any .tlsd files, waveforms of every track, playback, WAV and .tlsd
+export, and a builder for new songs made of parts from any song. Windows
+users can download `TrioTool.exe` from the releases; it is built by
+`.github/workflows/windows-exe.yml`. Fonts: Barlow (SIL Open Font License,
+see `trioplus/gui/static/fonts/OFL.txt`).
+
 ### Library
 
 ```python

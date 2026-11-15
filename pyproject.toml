@@ -16,12 +16,14 @@ test = ["pytest"]
 
 [project.scripts]
 trio = "trioplus.cli:main"
+trio-gui = "trioplus.gui.server:main"
 
 [tool.setuptools]
-packages = ["trioplus"]
+packages = ["trioplus", "trioplus.gui"]
 
 [tool.setuptools.dynamic]
 version = { attr = "trioplus.__version__" }
 
 [tool.setuptools.package-data]
 trioplus = ["data/*.tlsd"]
+"trioplus.gui" = ["static/*.html", "static/fonts/*"]

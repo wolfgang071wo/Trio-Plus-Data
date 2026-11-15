@@ -6,6 +6,7 @@
     trio card TRIOPLUS.DAT [--extract DIR] [--song N] [--json]
     trio scan IMAGE [--extract DIR] [--json]
     trio rename SONG NAME -o OUT
+    trio gui [PATH...]                  (web interface, see trioplus/gui)
 
 Nothing is ever written to an input file, and existing outputs are only
 replaced with --force.
@@ -305,6 +306,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["gui"]:
+        from .gui.server import main as gui_main
+        return gui_main(argv[1:])
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
