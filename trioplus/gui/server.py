@@ -443,6 +443,11 @@ def main(argv=None) -> int:
     ap.add_argument("--export-dir", type=Path)
     ap.add_argument("paths", nargs="*", help="Karte, Songs oder Ordner, die gleich geöffnet werden")
     args = ap.parse_args(argv)
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
 
     srv, lib, _token = make_server(args.host, args.port, args.export_dir)
     for p in args.paths:

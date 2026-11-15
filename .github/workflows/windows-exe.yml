@@ -31,11 +31,16 @@ jobs:
       - name: Smoke test
         shell: pwsh
         run: |
-          $p = Start-Process dist/TrioTool.exe -ArgumentList "--no-browser","--port","8799" -PassThru
-          Start-Sleep -Seconds 6
-          $r = Invoke-WebRequest http://127.0.0.1:8799/ -UseBasicParsing
-          if ($r.Content -notmatch "TRIO Tool") { throw "page not served" }
-          Stop-Process $p
+          $p = Start-Process dist/TrioTool.exe -ArgumentList "--no-browser","--port","8799" -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+          $ok = $false
+          for ($i = 0; $i -lt 40; $i++) {
+            Start-Sleep -Seconds 1
+            try { $r = Invoke-WebRequest http://127.0.0.1:8799/ -UseBasicParsing; if ($r.Content -match "TRIO Tool") { $ok = $true; break } } catch {}
+            if ($p.HasExited) { break }
+          }
+          Get-Content out.txt, err.txt -ErrorAction SilentlyContinue
+          if (-not $p.HasExited) { Stop-Process $p }
+          if (-not $ok) { throw "TrioTool.exe did not serve the page" }
       - uses: actions/upload-artifact@v4
         with:
           name: TrioTool-windows
