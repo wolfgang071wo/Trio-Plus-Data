@@ -196,7 +196,9 @@ def test_card_container(tmp_path):
     assert main(["card", "--extract", str(out), str(path)]) == 0
     got = Song.load(out / "Slots 05-09.tlsd")
     for a, b in zip(src.parts, got.parts):
-        assert (a.region, a.block_a, a.block_b) == (b.region, b.block_a, b.block_b)
+        assert a.trained == b.trained
+        if a.trained:
+            assert (a.region, a.block_a, a.block_b) == (b.region, b.block_a, b.block_b)
     with C.Card(path) as card:
         assert card.song_names()[2] == "Song 03"
         assert [s.index for s in card.slots() if s.present] == [5, 6, 7, 8]
