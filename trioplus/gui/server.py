@@ -146,6 +146,7 @@ class Library:
         self.export_dir = export_dir
         self._cache: OrderedDict[str, Song] = OrderedDict()
         self._info: dict[str, dict] = {}
+        self._layers: dict[str, object] = {}
         self._next = 1
 
     # sources ------------------------------------------------------------
@@ -188,6 +189,8 @@ class Library:
                 del self._cache[key]
             for key in [k for k in self._info if k.startswith(sid + ":")]:
                 del self._info[key]
+            for key in [k for k in self._layers if k.startswith(sid + ":")]:
+                del self._layers[key]
 
     def _source(self, sid: str) -> dict:
         for s in self.sources:
@@ -242,10 +245,31 @@ class Library:
                 "file": Path(src["path"]).name if src["kind"] == "file" else None,
                 "recorded": any(t["has_audio"] for p in d["parts"] for t in p["tracks"].values()),
                 "parts": [{"part": p["part"], "trained": p["trained"], "tracks": p["tracks"],
-                           "band": p["band_provisional"], "current": p["current_track"]} for p in d["parts"]],
+                           "band": p["band_provisional"], "current": p["current_track"],
+                           "layers": p["layers"],
+                           "has_layer": p["trained"] and p["tracks"]["main"]["has_audio"] and p["tracks"]["overdub"]["has_audio"],
+                           "undone": p["layers"] == 1 and p["tracks"]["overdub"]["has_audio"]} for p in d["parts"]],
             }
             self._info[song_id] = info
             return info
+
+    def track_pcm(self, song_id: str, part: int, track: str) -> bytes:
+        if track in TRACKS:
+            return self.song(song_id).part(part).tracks()[track]
+        if track == "layer":
+            return self.layer(song_id, part).pcm
+        raise TlsdError("unbekannte Spur")
+
+    def layer(self, song_id: str, part: int):
+        from ..layers import last_layer
+
+        key = f"{song_id}|{part}"
+        with self.lock:
+            if key not in self._layers:
+                self._layers[key] = last_layer(self.song(song_id).part(part))
+                while len(self._layers) > 8:
+                    self._layers.pop(next(iter(self._layers)))
+            return self._layers[key]
 
     def state(self) -> dict:
         with self.lock:
@@ -287,6 +311,10 @@ class Library:
                         continue
                     out = self._out(f"{base} - Part {p.number} {t}.wav")
                     out.write_bytes(_wav_bytes(pcm))
+                    written.append(str(out))
+                if track == "layer":
+                    out = self._out(f"{base} - Part {p.number} letzte Ebene.wav")
+                    out.write_bytes(_wav_bytes(self.layer(song_id, p.number).pcm))
                     written.append(str(out))
         else:
             raise TlsdError("unbekanntes Exportformat")
@@ -378,11 +406,8 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/cards":
                 return self._json({"cards": _find_cards()})
             if url.path in ("/api/peaks", "/api/wav"):
-                song = self.lib.song(q["song"][0])
                 track = q.get("track", ["main"])[0]
-                if track not in TRACKS:
-                    return self._error("unbekannte Spur")
-                pcm = song.part(int(q["part"][0])).tracks()[track]
+                pcm = self.lib.track_pcm(q["song"][0], int(q["part"][0]), track)
                 if url.path == "/api/peaks":
                     return self._json({"peaks": _peaks(pcm, int(q.get("n", ["600"])[0])),
                                        "seconds": len(pcm) / SAMPLE_WIDTH / SAMPLE_RATE})

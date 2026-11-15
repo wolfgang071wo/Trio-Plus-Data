@@ -23,6 +23,7 @@ trio info --json SONG.tlsd               # same, machine readable
 
 trio extract SONG.tlsd ... -o wavs/      # one WAV per recorded track
 trio extract SONG.tlsd --tracks main --trim
+trio extract SONG.tlsd --tracks layer         # only the last overdub layer
 
 trio build -o New.tlsd 1=verse.tlsd:2 2=chorus.tlsd:1   # DST=FILE:SRC
 trio rename SONG.tlsd "Riff in A" -o Riff.tlsd
@@ -72,6 +73,17 @@ count and recorded flag, block B audio length), so a trained-only part
 becomes a recorded one. The pedal alternates layers between the two tracks:
 an odd layer count plays `main`, an even one `overdub`; `mix` adds the WAV to
 that track. Not yet confirmed on hardware.
+
+### The two tracks and the last layer
+
+The tracks are not independent recordings. The pedal alternates: the first
+recording goes to `main`; each overdub writes "previous mix + new playing"
+into the other track and plays that one, so the track not being played is
+the undo state. Measured on real songs the newer track contains the older
+one sample-aligned at a level of about 1.0. `trioplus.layers.last_layer`
+subtracts the older track (level fitted by least squares) and returns only
+what was played last; with a layer count of 1 and audio in `overdub` it is
+an overdub that was undone on the pedal.
 
 ### Library
 

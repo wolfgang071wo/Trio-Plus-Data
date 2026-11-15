@@ -269,3 +269,22 @@ def test_cli_import_wav(tmp_path):
     p = Song.load(out).part(1)
     assert p.current_track == "main" and p.track_has_audio("main")
     assert main(["import-wav", str(src), "3", str(wav), "-o", str(tmp_path / "x.tlsd")]) == 2  # part 3 not trained
+
+
+def test_last_layer_is_newer_minus_older():
+    from trioplus.layers import last_layer
+
+    part = Song.load(SONG_05).part(4)  # 4 layers: overdub is the newer mix
+    r = last_layer(part)
+    assert (r.newer, r.older, r.undone) == ("overdub", "main", False)
+    assert 0.9 < r.gain < 1.1 and r.lag == 0
+    assert len(r.pcm) == len(part.tracks()["overdub"])
+    assert r.level_ratio < 0.8
+    with pytest.raises(TlsdError):
+        last_layer(Song.load(SONG_05).part(2))  # single layer
+
+
+def test_cli_extract_layer(tmp_path):
+    assert main(["extract", "--tracks", "layer", "-o", str(tmp_path), str(SONG_05)]) == 0
+    assert sorted(p.name for p in tmp_path.glob("*.wav")) == [
+        "05_part1_layer.wav", "05_part3_layer.wav", "05_part4_layer.wav"]

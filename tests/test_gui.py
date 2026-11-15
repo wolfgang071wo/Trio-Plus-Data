@@ -54,6 +54,8 @@ def test_open_play_export_build(server):
     assert len(peaks["peaks"]) == 50 and peaks["seconds"] > 20
     wav = call(f"/api/wav?song={sid}&part=1&track=overdub")
     assert wav[:4] == b"RIFF"
+    lay = call(f"/api/wav?song={sid}&part=4&track=layer")
+    assert lay[:4] == b"RIFF"
     files = call("/api/export", {"song": sid, "what": "wav"})["files"]
     assert len(files) == 7
     tl = call("/api/export", {"song": sid, "what": "tlsd"})["files"][0]

@@ -234,6 +234,19 @@ function renderSong() {
           el("span", {class:"acts"}, playBtn,
             el("button", {onclick: run(() => doExport({song:s.id, what:"wav", part:p.part, track:t}))}, "WAV"))));
       }
+      if (p.has_layer) {
+        const t = "layer";
+        const canvas = el("canvas", {class:"wave", "data-song":s.id, "data-part":p.part, "data-track":t,
+          role:"img", "aria-label":`Wellenform Part ${p.part} letzte Ebene`});
+        canvas.addEventListener("click", ev => togglePlay(s.id, p.part, t, ev.offsetX / canvas.clientWidth));
+        body.append(el("div", {class:"track"},
+          el("label", {title: p.undone ? "Ein Overdub, der am Pedal rückgängig gemacht wurde" :
+              "Nur das zuletzt Eingespielte, herausgerechnet aus beiden Spuren"},
+            "Letzte Ebene", el("small", {}, p.undone ? "rückgängig" : "einzeln")), canvas,
+          el("span", {class:"acts"},
+            el("button", {"data-play":`${s.id}|${p.part}|${t}`, onclick: () => togglePlay(s.id, p.part, t)}, "Abspielen"),
+            el("button", {onclick: run(() => doExport({song:s.id, what:"wav", part:p.part, track:t}))}, "WAV"))));
+      }
       if (!any) body.append(el("p", {class:"note"}, "Gelernt, aber ohne Aufnahme."));
     }
     face.append(el("div", {class:"part"}, el("div", {class:"led " + st, "aria-hidden":"true"}, p.part), body));
@@ -302,7 +315,7 @@ const waveCache = {};
 function paintWave(c, peaks, key) {
   const g = c.getContext("2d"), W = c.width, H = c.height;
   g.clearRect(0,0,W,H);
-  const color = c.dataset.track === "main" ? "#2e9e4e" : "#c9433a";
+  const color = {main:"#2e9e4e", overdub:"#c9433a", layer:"#e09b12"}[c.dataset.track];
   const n = peaks.length, mid = H / 2;
   const prog = playing && playing.key === key ? playing.progress : -1;
   for (let i = 0; i < n; i++) {

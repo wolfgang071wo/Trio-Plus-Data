@@ -82,8 +82,8 @@ def cmd_info(args) -> int:
 def cmd_extract(args) -> int:
     tracks = [t.strip() for t in args.tracks.split(",") if t.strip()]
     for t in tracks:
-        if t not in TRACKS:
-            raise CliError(f"unknown track {t!r}, choose from {', '.join(TRACKS)}")
+        if t not in TRACKS + ("layer",):
+            raise CliError(f"unknown track {t!r}, choose from {', '.join(TRACKS + ('layer',))}")
     outdir = Path(args.output)
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -93,8 +93,11 @@ def cmd_extract(args) -> int:
         entry = {"file": str(path), "name": song.name, "wav": []}
         for part in song.parts:
             pcm_by_track = part.tracks()
+            if "layer" in tracks and any(pcm_by_track["main"]) and any(pcm_by_track["overdub"]):
+                from .layers import last_layer
+                pcm_by_track["layer"] = last_layer(part).pcm
             for t in tracks:
-                pcm = pcm_by_track[t]
+                pcm = pcm_by_track.get(t, b"")
                 if not any(pcm):
                     continue
                 if args.trim:
@@ -276,7 +279,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = common(sub.add_parser("extract", help="export recorded audio as WAV"))
     p.add_argument("songs", nargs="+", type=Path)
     p.add_argument("-o", "--output", default="Trio_wav_export", help="output folder (default: %(default)s)")
-    p.add_argument("--tracks", default="main,overdub", help="comma list of main, overdub (default: both)")
+    p.add_argument("--tracks", default="main,overdub",
+                   help="comma list of main, overdub, layer (the last overdub layer on its own); "
+                        "default: main,overdub")
     p.add_argument("--trim", action="store_true", help="strip trailing silence")
     p.add_argument("--force", action="store_true", help="replace existing WAV files")
     p.set_defaults(func=cmd_extract)
