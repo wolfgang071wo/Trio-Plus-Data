@@ -194,7 +194,8 @@ def test_card_container(tmp_path):
 
     out = tmp_path / "out"
     assert main(["card", "--extract", str(out), str(path)]) == 0
-    got = Song.load(out / "Slots 05-09.tlsd")
+    got = Song.load(out / "02 Song 02.tlsd")
+    assert got.name == "Song 02"
     for a, b in zip(src.parts, got.parts):
         assert a.trained == b.trained
         if a.trained:

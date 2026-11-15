@@ -4,7 +4,6 @@ Layout, worked out from a real card (firmware as of 2026) by matching an
 exported .tlsd against the container byte for byte:
 
     0x0000000  "TLSD" magic, card name "Trio+ Card"
-    0x0000C800 2 bytes, probably the selected song (0-based) and part
     0x1425800  12 song records, 51,712 bytes apart: 0x0303 marker + name
                (the rest is uninitialised memory, also in exported files)
     0x14BD000  120 part records, 83,968 bytes apart:
@@ -19,10 +18,11 @@ Block B starts with three u32: 0 = part present / 1 = empty, the region
 length in 1 KB units, and the same length again once audio is recorded
 (0xFFFFFFFF before). Blocks A and B are copied unchanged into exported files.
 
-Not yet known: which song owns which slots. On the analysed card the only
-recorded song (Song 03) used slots 0..4, so slots are allocated on demand.
-Until the owner field is found, `songs()` groups slots in fives in
-allocation order and does not name them.
+Slots are assigned statically: song n (1..12) owns slots (n-1)*5 .. (n-1)*5+4,
+one per part. Confirmed on a real card with recordings in songs 1, 2 and 8
+(slots 0-4, 5-6 and 35), cross-checked against the pedal and TRIO Manager.
+
+    0x0000C800 / 0x0000C810: small values (seen 02 01 and 07); meaning unknown
 """
 
 from __future__ import annotations
@@ -128,15 +128,22 @@ class Card:
 
     # -- songs ----------------------------------------------------------
 
-    def groups(self) -> list[list[Slot]]:
-        """Slots in groups of five (provisional song boundaries)."""
-        all_slots = self.slots()
-        return [all_slots[g * NUM_PARTS:(g + 1) * NUM_PARTS] for g in range(NUM_SONGS)]
+    def song_slots(self, number: int) -> list[Slot]:
+        """The five part slots of song `number` (1..12)."""
+        if not 1 <= number <= NUM_SONGS:
+            raise TlsdError(f"song must be 1..{NUM_SONGS}")
+        first = (number - 1) * NUM_PARTS
+        return [self.slot(first + i) for i in range(NUM_PARTS)]
 
-    def song_from_group(self, group: list[Slot], name: str) -> Song:
+    def song(self, number: int) -> Song:
+        """Song `number` (1..12) as a .tlsd, like a TRIO Manager export."""
         song = Song.empty()
-        for n, s in enumerate(group, start=1):
+        for n, s in enumerate(self.song_slots(number), start=1):
             if s.present:
                 song.set_part(n, self.part_from_slot(s, n))
-        song.name = name
+        name = self.song_names()[number - 1] or f"Song {number:02d}"
+        try:
+            song.name = name
+        except TlsdError:
+            song.name = f"Song {number:02d}"
         return song

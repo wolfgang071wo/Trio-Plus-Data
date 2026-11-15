@@ -34,9 +34,10 @@ trio scan IMAGE --extract songs/         # find .tlsd songs embedded in any file
 
 `card` reads the `TRIOPLUS.DAT` container on the SD card directly; the
 layout is documented in `trioplus/card.py`. Audio and both settings blocks
-of every part come out byte-identical to a TRIO Manager export. Not yet
-known is which song owns which audio slots, so songs are written per group
-of five slots (`Slots 00-04.tlsd`, ...). Both commands only read their input.
+of every part come out byte-identical to a TRIO Manager export. Song n owns
+audio slots (n-1)*5 to (n-1)*5+4, so songs are written with their number and
+name (`01 Song 01.tlsd`, ...); `--song N` limits the export. Both commands
+only read their input.
 
 `build` starts from an empty song and fills the listed parts, so it also
 covers reordering, copying and deleting parts. Every command accepts
