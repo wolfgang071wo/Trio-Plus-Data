@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: python -m pip install pyinstaller pytest
+        run: python -m pip install pyinstaller pytest .
       - name: Test
         run: python -m pytest -q tests
       - name: Build TrioTool.exe
@@ -26,6 +26,8 @@ jobs:
           pyinstaller --onefile --name TrioTool --noconfirm
           --add-data "trioplus/gui/static;trioplus/gui/static"
           --add-data "trioplus/data;trioplus/data"
+          --paths .
+          --collect-submodules trioplus
           --hidden-import tkinter
           packaging/trio_tool.py
       - name: Smoke test
