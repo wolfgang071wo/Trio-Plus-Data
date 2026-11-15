@@ -5,6 +5,7 @@
     trio build -o OUT [--name NAME] PART=SONG:PART ...
     trio card TRIOPLUS.DAT [--extract DIR] [--song N] [--json]
     trio scan IMAGE [--extract DIR] [--json]
+    trio import-wav SONG PART WAV -o OUT [--mode replace|mix] [--gain G] [--loop]
     trio rename SONG NAME -o OUT
     trio gui [PATH...]                  (web interface, see trioplus/gui)
 
@@ -226,6 +227,27 @@ def cmd_card(args) -> int:
     return 0
 
 
+def cmd_import_wav(args) -> int:
+    from .wavein import import_wav, read_wav_mono16
+
+    song = Song.load(args.song)
+    part = song.part(args.part)
+    pcm = read_wav_mono16(args.wav)
+    new, info = import_wav(part, pcm, args.mode, args.gain, args.loop)
+    song.set_part(args.part, new)
+    out = Path(args.output)
+    _check_output(out, [args.song, args.wav], args.force)
+    data = song.to_bytes()
+    Song.from_bytes(data)
+    out.write_bytes(data)
+    msg = (f"wrote {out}: {info['wav_seconds']} s WAV into part {args.part} "
+           f"({info['part_seconds']} s, {info['track']} track, {args.mode})")
+    if info["truncated"]:
+        msg += "; the WAV was longer than the part and was cut"
+    _emit({"file": str(out), **info}, args.json, msg)
+    return 0
+
+
 def cmd_rename(args) -> int:
     song = Song.load(args.song)
     song.name = args.name
@@ -295,6 +317,23 @@ def build_parser() -> argparse.ArgumentParser:
                    help="only extract song N (1..12), may be repeated")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_card)
+
+    p = common(sub.add_parser(
+        "import-wav",
+        help="put a WAV into a trained part (new .tlsd for the TRIO Manager)",
+        description="The part must already be trained on the pedal, because the band follows "
+                    "what it learned there; its length stays the same. replace makes the WAV the "
+                    "recording (layer 1), mix adds it to the track the pedal currently plays.",
+    ))
+    p.add_argument("song", type=Path)
+    p.add_argument("part", type=int)
+    p.add_argument("wav", type=Path)
+    p.add_argument("-o", "--output", required=True, type=Path)
+    p.add_argument("--mode", choices=["replace", "mix"], default="replace")
+    p.add_argument("--gain", type=float, default=1.0, help="level of the WAV, e.g. 0.3 (default 1.0)")
+    p.add_argument("--loop", action="store_true", help="repeat a short WAV to fill the part")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=cmd_import_wav)
 
     p = common(sub.add_parser("rename", help="write a copy of a song with a new name"))
     p.add_argument("song", type=Path)

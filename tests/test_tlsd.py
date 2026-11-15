@@ -203,3 +203,69 @@ def test_card_container(tmp_path):
     with C.Card(path) as card:
         assert card.song_names()[2] == "Song 03"
         assert [s.index for s in card.slots() if s.present] == [5, 6, 7, 8]
+
+
+def _write_wav(path, seconds, rate=44100, channels=1, width=2, freq=220.0):
+    import math
+    import struct
+    frames = bytearray()
+    for i in range(int(seconds * rate)):
+        v = int(0.5 * 32767 * math.sin(2 * math.pi * freq * i / rate))
+        if width == 2:
+            s = struct.pack("<h", v)
+        else:  # 24 bit
+            s = (v << 8).to_bytes(3, "little", signed=True)
+        frames += s * channels
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(channels)
+        w.setsampwidth(width)
+        w.setframerate(rate)
+        w.writeframes(bytes(frames))
+
+
+def test_import_wav_into_trained_part(tmp_path):
+    from trioplus.wavein import import_wav, read_wav_mono16
+
+    src = ROOT / "tlsd_sequence_in_a" / "01.tlsd"  # trained, no audio
+    wav = tmp_path / "in.wav"
+    _write_wav(wav, 2.0, rate=48000, channels=2, width=3)
+    pcm = read_wav_mono16(wav)
+    assert abs(len(pcm) / 2 - 2.0 * 44100) < 2
+
+    song = Song.load(src)
+    part = song.part(1)
+    assert part.layers == 0 and part.current_track is None
+    new, info = import_wav(part, pcm, "replace")
+    assert new.layers == 1 and new.current_track == "main"
+    assert int.from_bytes(new.block_b[8:12], "little") == int.from_bytes(new.block_b[4:8], "little")
+    assert int.from_bytes(new.block_a[16256:16260], "little") == 1
+    assert len(new.region) == len(part.region)
+    tr = new.tracks()
+    assert tr["main"][:len(pcm)] == pcm[:len(tr["main"])]
+    assert not any(tr["overdub"])
+    song.set_part(1, new)
+    again = Song.from_bytes(song.to_bytes()).part(1)
+    assert again.tracks()["main"] == tr["main"]
+
+
+def test_import_wav_mix_uses_current_track(tmp_path):
+    from trioplus.wavein import import_wav, read_wav_mono16
+
+    wav = tmp_path / "pad.wav"
+    _write_wav(wav, 1.0)
+    part = Song.load(SONG_05).part(4)  # 4 layers -> overdub track is current
+    new, info = import_wav(part, read_wav_mono16(wav), "mix", gain=0.3)
+    assert info["track"] == "overdub" and new.layers == 4
+    assert new.tracks()["main"] == part.tracks()["main"]
+    assert new.tracks()["overdub"] != part.tracks()["overdub"]
+
+
+def test_cli_import_wav(tmp_path):
+    wav = tmp_path / "in.wav"
+    _write_wav(wav, 30.0)
+    out = tmp_path / "with_wav.tlsd"
+    src = ROOT / "tlsd_sequence_in_a" / "02.tlsd"
+    assert main(["import-wav", str(src), "1", str(wav), "-o", str(out)]) == 0
+    p = Song.load(out).part(1)
+    assert p.current_track == "main" and p.track_has_audio("main")
+    assert main(["import-wav", str(src), "3", str(wav), "-o", str(tmp_path / "x.tlsd")]) == 2  # part 3 not trained

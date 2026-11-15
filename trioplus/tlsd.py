@@ -56,6 +56,9 @@ BAND_FIELDS = {
 
 TRACKS = ("main", "overdub")
 
+OFF_LAYERS = 15_552  # block A
+OFF_RECORDED = 16_256  # block A
+
 _TEMPLATE = Path(__file__).with_name("data") / "template_empty_song.tlsd"
 
 
@@ -107,6 +110,51 @@ class Part:
     def track_has_audio(self, track: str) -> bool:
         return any(self.tracks()[track])
 
+    # Recording state, see docs/block_a.md:
+    #   block A +15552  layer count: 0 trained only, 1 recorded, 2.. overdubs
+    #   block A +16256  1 once audio is recorded
+    #   block B +8      0xFFFFFFFF until audio is recorded, then the length
+    @property
+    def layers(self) -> int:
+        return _u32(self.block_a, OFF_LAYERS) if self.block_a else 0
+
+    @property
+    def current_track(self) -> str | None:
+        """Track the pedal plays: layers alternate between the two slots."""
+        if not self.trained or self.layers == 0:
+            return None
+        return "main" if self.layers % 2 == 1 else "overdub"
+
+    def with_tracks(self, main: bytes, overdub: bytes, layers: int) -> "Part":
+        """A copy of this trained part with new audio and a recorded state.
+
+        `main` and `overdub` must have exactly the lengths of the current tracks.
+        """
+        if not self.trained:
+            raise TlsdError(f"part {self.number} is not trained; record or train it on the pedal first")
+        old = self.tracks()
+        if len(main) != len(old["main"]) or len(overdub) != len(old["overdub"]):
+            raise TlsdError("track lengths must not change")
+        chunks = [self.region[i:i + CHUNK_SIZE] for i in range(0, len(self.region), CHUNK_SIZE)]
+        pos = {"main": 0, "overdub": 0}
+        src = {"main": main, "overdub": overdub}
+        out = []
+        for i, c in enumerate(chunks):
+            t = "main" if i % 2 else "overdub"
+            out.append(src[t][pos[t]:pos[t] + len(c)])
+            pos[t] += len(c)
+        region = b"".join(out)
+
+        a = bytearray(self.block_a)
+        _put_u32(a, OFF_LAYERS, layers)
+        _put_u32(a, OFF_RECORDED, 1)
+        b = bytearray(self.block_b)
+        _put_u32(b, 8, _u32(b, 4))
+        if _u32(b, 12) == 0 and _u32(b, 16) == 0:
+            _put_u32(b, 12, 1)
+            _put_u32(b, 16, 1)
+        return Part(self.number, region, bytes(a), bytes(b))
+
     def band(self) -> dict[str, int]:
         return {key: _u32(self.block_a, off) for key, off in BAND_FIELDS.items()}
 
@@ -125,6 +173,8 @@ class Part:
                 for name, pcm in tracks.items()
             },
             "band_provisional": self.band(),
+            "layers": self.layers,
+            "current_track": self.current_track,
         }
 
 

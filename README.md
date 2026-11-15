@@ -26,6 +26,8 @@ trio extract SONG.tlsd --tracks main --trim
 
 trio build -o New.tlsd 1=verse.tlsd:2 2=chorus.tlsd:1   # DST=FILE:SRC
 trio rename SONG.tlsd "Riff in A" -o Riff.tlsd
+trio import-wav SONG.tlsd 2 pad.wav -o New.tlsd              # WAV becomes the recording of part 2
+trio import-wav SONG.tlsd 2 pad.wav -o New.tlsd --mode mix --gain 0.3
 
 trio card TRIOPLUS.DAT                   # recorded parts on the SD card file
 trio card TRIOPLUS.DAT --extract songs/  # write them out as .tlsd, no TRIO Manager needed
@@ -58,6 +60,18 @@ export, and a builder for new songs made of parts from any song. Windows
 users can download `TrioTool.exe` from the releases; it is built by
 `.github/workflows/windows-exe.yml`. Fonts: Barlow (SIL Open Font License,
 see `trioplus/gui/static/fonts/OFL.txt`).
+
+### WAV into a part
+
+`import-wav` needs a part that is already trained on the pedal: the band
+follows what it learned there, and the part length stays the same (longer
+WAVs are cut, shorter ones padded or repeated with `--loop`). Any PCM WAV
+works; it is converted to 16-bit mono 44.1 kHz. Unlike the original tool's
+upload, the recording state is set the way the pedal sets it (block A layer
+count and recorded flag, block B audio length), so a trained-only part
+becomes a recorded one. The pedal alternates layers between the two tracks:
+an odd layer count plays `main`, an even one `overdub`; `mix` adds the WAV to
+that track. Not yet confirmed on hardware.
 
 ### Library
 
