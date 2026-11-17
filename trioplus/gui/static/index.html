@@ -72,6 +72,10 @@ main{overflow:auto;padding:1.4rem 1.8rem 3rem}
 .track .acts{display:flex;gap:.35rem}
 .track .acts button{padding:.25rem .55rem;font-size:.85rem}
 .note{color:var(--muted);font-size:.92rem;margin:.2rem 0}
+.chords{display:flex;flex-wrap:wrap;gap:.4rem 1rem;align-items:center;margin-top:.5rem}
+.chords .meta{color:var(--muted);font-size:.9rem}
+.chords .seq{font:600 1.15rem var(--cond);letter-spacing:.01em;white-space:pre-wrap}
+.chords button{padding:.25rem .55rem;font-size:.85rem}
 .builder{margin-top:2rem;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:1rem 1.2rem}
 .builder h2{font:700 1.5rem var(--cond);margin:0 0 .2rem}
 .slots{display:grid;gap:.45rem;margin:.8rem 0}
@@ -204,6 +208,8 @@ function renderSong() {
     el("div", {}, el("h1", {}, s.name), el("p", {}, `${songLabel(s)} auf ${src ? src.name : ""}`)),
     s.recorded ? el("div", {class:"row"},
       el("button", {onclick: run(() => doExport({song:s.id, what:"wav"}))}, "Alle Spuren als WAV speichern"),
+      el("button", {onclick: run(() => doExport({song:s.id, what:"midi"})),
+        title:"Akkorde und Bass-Grundtöne aller Parts als MIDI-Dateien"}, "Akkorde als MIDI"),
       el("button", {class:"primary", onclick: run(() => doExport({song:s.id, what:"tlsd"}))}, "Als .tlsd speichern")) : null);
   const face = el("div", {class:"face"});
   if (!s.parts.some(p => p.trained)) face.append(el("p", {class:"note"}, "In diesem Song ist nichts aufgenommen."));
@@ -248,6 +254,15 @@ function renderSong() {
             el("button", {onclick: run(() => doExport({song:s.id, what:"wav", part:p.part, track:t}))}, "WAV"))));
       }
       if (!any) body.append(el("p", {class:"note"}, "Gelernt, aber ohne Aufnahme."));
+      if (p.harmony) {
+        body.append(el("div", {class:"chords"},
+          el("span", {class:"meta"}, `${p.harmony.bars} Takte ${p.harmony.time}, ${p.harmony.tempo.toFixed(0)} BPM`),
+          el("span", {class:"seq"}, p.harmony.chords.join("  ")),
+          el("button", {onclick: run(() => doExport({song:s.id, what:"midi", part:p.part})),
+            title:"Akkorde und Bass-Grundtöne dieses Parts als MIDI-Datei"}, "MIDI"),
+          el("button", {onclick: run(() => doExport({song:s.id, what:"midi", part:p.part, half:true})),
+            title:"Wie MIDI, aber mit der Lesart in halbem Tempo"}, "MIDI halbes Tempo")));
+      }
     }
     face.append(el("div", {class:"part"}, el("div", {class:"led " + st, "aria-hidden":"true"}, p.part), body));
   }

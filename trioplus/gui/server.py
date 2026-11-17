@@ -238,6 +238,17 @@ class Library:
                     return info
             song = self.song(song_id)
             d = song.describe()
+            from ..analysis import analyse, part_seconds
+            harmony = {}
+            for p in song.parts:
+                if p.trained:
+                    try:
+                        an = analyse(p)
+                        harmony[p.number] = {"chords": [c.name for c in an.chords],
+                                             "tempo": round(an.tempo_for(part_seconds(p)), 1),
+                                             "bars": an.bars, "time": f"{an.beats_per_bar}/4"}
+                    except TlsdError:
+                        pass
             info = {
                 "id": song_id, "source": sid,
                 "number": int(num) if src["kind"] == "card" else None,
@@ -248,7 +259,8 @@ class Library:
                            "band": p["band_provisional"], "current": p["current_track"],
                            "layers": p["layers"],
                            "has_layer": p["trained"] and p["tracks"]["main"]["has_audio"] and p["tracks"]["overdub"]["has_audio"],
-                           "undone": p["layers"] == 1 and p["tracks"]["overdub"]["has_audio"]} for p in d["parts"]],
+                           "undone": p["layers"] == 1 and p["tracks"]["overdub"]["has_audio"],
+                           "harmony": harmony.get(p["part"])} for p in d["parts"]],
             }
             self._info[song_id] = info
             return info
@@ -293,7 +305,8 @@ class Library:
             n += 1
         return out
 
-    def export(self, song_id: str, what: str, part: int | None = None, track: str | None = None) -> list[str]:
+    def export(self, song_id: str, what: str, part: int | None = None, track: str | None = None,
+               half: bool = False) -> list[str]:
         song = self.song(song_id)
         info = self.info(song_id)
         prefix = f"{info['number']:02d} " if info.get("number") else ""
@@ -316,6 +329,20 @@ class Library:
                     out = self._out(f"{base} - Part {p.number} letzte Ebene.wav")
                     out.write_bytes(_wav_bytes(self.layer(song_id, p.number).pcm))
                     written.append(str(out))
+        elif what == "midi":
+            from ..midi import part_midi
+            for p in ([song.part(part)] if part else song.parts):
+                if not p.trained:
+                    continue
+                try:
+                    data, _ = part_midi(p, f"{info['name']} Part {p.number}", 2 if half else None)
+                except TlsdError:
+                    continue
+                out = self._out(f"{base} - Part {p.number}.mid")
+                out.write_bytes(data)
+                written.append(str(out))
+            if not written:
+                raise TlsdError("Keine Akkorde gefunden")
         else:
             raise TlsdError("unbekanntes Exportformat")
         return written
@@ -435,7 +462,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.lib.close(body["source"])
                 return self._json({"state": self.lib.state()})
             if url.path == "/api/export":
-                files = self.lib.export(body["song"], body["what"], body.get("part"), body.get("track"))
+                files = self.lib.export(body["song"], body["what"], body.get("part"), body.get("track"),
+                                        bool(body.get("half")))
                 return self._json({"files": files})
             if url.path == "/api/build":
                 out = self.lib.build(body.get("name", "").strip() or "Neuer Song", body.get("parts", []))

@@ -6,6 +6,7 @@
     trio card TRIOPLUS.DAT [--extract DIR] [--song N] [--json]
     trio scan IMAGE [--extract DIR] [--json]
     trio import-wav SONG PART WAV -o OUT [--mode replace|mix] [--gain G] [--loop]
+    trio midi SONG... [-o DIR] [--half | --section N] [--repeat N]
     trio rename SONG NAME -o OUT
     trio gui [PATH...]                  (web interface, see trioplus/gui)
 
@@ -251,6 +252,31 @@ def cmd_import_wav(args) -> int:
     return 0
 
 
+def cmd_midi(args) -> int:
+    from .midi import write_song_midi
+
+    outdir = Path(args.output)
+    report = []
+    for path in args.songs:
+        song = Song.load(path)
+        if args.section is None and args.half:
+            section = 2
+        else:
+            section = args.section
+        results = write_song_midi(song, outdir, path.stem, section, args.repeat)
+        report.append({"file": str(path), "parts": results})
+        if not args.json:
+            for r in results:
+                if "error" in r:
+                    print(f"{path} part {r['part']}: {r['error']}", file=sys.stderr)
+                else:
+                    print(f"wrote {r['path']}  {r['bars']} bars {r['time']} at {r['tempo']} BPM: "
+                          + " ".join(r["chords"]))
+    if args.json:
+        print(json.dumps(report, indent=2))
+    return 0
+
+
 def cmd_rename(args) -> int:
     song = Song.load(args.song)
     song.name = args.name
@@ -339,6 +365,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--loop", action="store_true", help="repeat a short WAV to fill the part")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_import_wav)
+
+    p = common(sub.add_parser(
+        "midi",
+        help="write the chords the pedal learned as MIDI (chords + bass)",
+        description="One .mid per trained part: tempo and time signature, chord names as markers, "
+                    "a chord track and a bass track with the root on every beat. The tempo is "
+                    "computed from the loop length, so the file lines up with the audio. Chord "
+                    "types marked ? are probable; see docs/block_a.md.",
+    ))
+    p.add_argument("songs", nargs="+", type=Path)
+    p.add_argument("-o", "--output", default="midi", help="output folder (default: %(default)s)")
+    p.add_argument("--half", action="store_true", help="use the pedal's half-tempo 4/4 reading")
+    p.add_argument("--section", type=int, choices=[0, 1, 2, 3],
+                   help="reading to use: 0 4/4, 1 3/4, 2 4/4 half tempo, 3 3/4 half tempo")
+    p.add_argument("--repeat", type=int, default=1, help="repeat the part N times")
+    p.set_defaults(func=cmd_midi)
 
     p = common(sub.add_parser("rename", help="write a copy of a song with a new name"))
     p.add_argument("song", type=Path)

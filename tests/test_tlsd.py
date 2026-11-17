@@ -288,3 +288,29 @@ def test_cli_extract_layer(tmp_path):
     assert main(["extract", "--tracks", "layer", "-o", str(tmp_path), str(SONG_05)]) == 0
     assert sorted(p.name for p in tmp_path.glob("*.wav")) == [
         "05_part1_layer.wav", "05_part3_layer.wav", "05_part4_layer.wav"]
+
+
+def test_analysis_reads_roots_of_test_series():
+    from trioplus.analysis import analyse
+
+    for f, root in [("tlsd-without-audio/Song C1 @68.6.tlsd", 0), ("tlsd-without-audio/Song D1 @70.0.tlsd", 2),
+                    ("tlsd_sequence_in_a/01.tlsd", 9)]:
+        an = analyse(Song.load(ROOT / f).part(1))
+        assert an.chords[0].root == root
+        assert an.beats_per_bar in (3, 4) and an.bars >= 1
+
+
+def test_cli_midi(tmp_path):
+    assert main(["midi", "-o", str(tmp_path), str(SONG_05)]) == 0
+    files = sorted(tmp_path.glob("*.mid"))
+    assert len(files) == 4
+    data = files[0].read_bytes()
+    assert data[:4] == b"MThd" and data.count(b"MTrk") == 3
+    try:
+        import mido
+    except ImportError:
+        return
+    m = mido.MidiFile(files[0])
+    part = Song.load(SONG_05).part(1)
+    assert abs(m.length - len(part.tracks()["main"]) / 2 / 44100) < 0.05
+    assert any(msg.type == "note_on" for msg in m.tracks[2])

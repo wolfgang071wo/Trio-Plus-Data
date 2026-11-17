@@ -27,6 +27,8 @@ trio extract SONG.tlsd --tracks layer         # only the last overdub layer
 
 trio build -o New.tlsd 1=verse.tlsd:2 2=chorus.tlsd:1   # DST=FILE:SRC
 trio rename SONG.tlsd "Riff in A" -o Riff.tlsd
+trio midi SONG.tlsd -o midi/              # chords + bass the pedal learned, one .mid per part
+trio midi SONG.tlsd -o midi/ --half       # use the half-tempo reading
 trio import-wav SONG.tlsd 2 pad.wav -o New.tlsd              # WAV becomes the recording of part 2
 trio import-wav SONG.tlsd 2 pad.wav -o New.tlsd --mode mix --gain 0.3
 
@@ -61,6 +63,17 @@ export, and a builder for new songs made of parts from any song. Windows
 users can download `TrioTool.exe` from the releases; it is built by
 `.github/workflows/windows-exe.yml`. Fonts: Barlow (SIL Open Font License,
 see `trioplus/gui/static/fonts/OFL.txt`).
+
+### Chords as MIDI
+
+The pedal stores what it learned in block A: bars, time signature and a
+chord per segment (root and chord type, see `docs/block_a.md`). `trio midi`
+writes this as a Standard MIDI File per part: chord names as markers, a
+chord track (electric piano) and a bass track with the root on every beat.
+The tempo is taken from the loop length, so the MIDI lines up with the
+exported audio. Chord types the pedal was not clearly tested on are marked
+with `?` and played as triads. Drums are generated inside the pedal and are
+not in the file.
 
 ### WAV into a part
 
