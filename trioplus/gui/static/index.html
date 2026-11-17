@@ -508,6 +508,30 @@ function openChordEditor(song, p, i) {
   rootSel.focus();
 }
 
+
+// Bass: sawtooth + square an octave apart through a resonant low-pass whose cutoff
+// opens on the attack and closes like a plucked string, then gentle saturation.
+let bassCurve = null;
+function bassNote(ctx, out, freq, t, dur, accent) {
+  t += (Math.random() - 0.5) * 0.003;
+  const v = accent * (0.93 + Math.random() * 0.1);
+  if (!bassCurve) { bassCurve = new Float32Array(1024);
+    for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; bassCurve[i] = Math.tanh(1.8 * x) / Math.tanh(1.8); } }
+  const saw = ctx.createOscillator(); saw.type = "sawtooth"; saw.frequency.value = freq;
+  const sq = ctx.createOscillator(); sq.type = "square"; sq.frequency.value = freq / 2;
+  const sub = ctx.createGain(); sub.gain.value = 0.35;
+  const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.Q.value = 3.5;
+  lp.frequency.setValueAtTime(2200 * v, t); lp.frequency.exponentialRampToValueAtTime(420, t + 0.22);
+  const sat = ctx.createWaveShaper(); sat.curve = bassCurve;
+  const amp = ctx.createGain();
+  amp.gain.setValueAtTime(0.0001, t); amp.gain.exponentialRampToValueAtTime(0.32 * v, t + 0.006);
+  amp.gain.exponentialRampToValueAtTime(0.2 * v, t + 0.18);
+  amp.gain.setValueAtTime(0.2 * v, t + Math.max(0.19, dur - 0.04));
+  amp.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  saw.connect(lp); sq.connect(sub); sub.connect(lp); lp.connect(sat); sat.connect(amp); amp.connect(out);
+  for (const o of [saw, sq]) { o.start(t); o.stop(t + dur + 0.05); }
+}
+
 let noiseBuf = null;
 function noise(ctx) {
   if (noiseBuf && noiseBuf.sampleRate === ctx.sampleRate) return noiseBuf;
@@ -516,31 +540,86 @@ function noise(ctx) {
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   return noiseBuf;
 }
-function drum(ctx, out, note, t, v) {
-  const env = (node, level, decay) => { const g = ctx.createGain();
-    g.gain.setValueAtTime(level * v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
-    node.connect(g); g.connect(out); return g; };
-  const nz = (type, freq, q, level, decay) => { const s = ctx.createBufferSource(); s.buffer = noise(ctx);
+// Drum voices in the style of classic analogue drum machines (TR-808/909 recipes):
+// pitched sine kick with click, two-tone snare body plus noise, metallic cymbals
+// from six detuned square oscillators.
+const METAL_FREQS = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0];  // TR-808 cymbal oscillators
+function drumKit(ctx, out) {
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.12;
+  comp.connect(out);
+  // small room: exponentially decaying stereo noise as impulse response
+  const len = Math.floor(ctx.sampleRate * 0.55), ir = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2); }
+  const verb = ctx.createConvolver(); verb.buffer = ir;
+  const wet = ctx.createGain(); wet.gain.value = 0.14; verb.connect(wet); wet.connect(comp);
+  const dry = ctx.createGain(); dry.connect(comp); dry.connect(verb);
+  const shaper = ctx.createWaveShaper(), curve = new Float32Array(1024);
+  for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; curve[i] = Math.tanh(2.2 * x) / Math.tanh(2.2); }
+  shaper.curve = curve; shaper.connect(dry);
+  return {dry, drive: shaper};
+}
+function drum(ctx, kit, note, t, v) {
+  if (!kit.dry) kit = {dry: kit, drive: kit};  // plain output node (offline tests)
+  v *= 0.94 + Math.random() * 0.12;            // humanise level
+  t += (Math.random() - 0.5) * 0.004;          // and timing, +-2 ms
+  const env = (node, level, attack, decay, to = kit.dry) => { const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(level * v, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
+    node.connect(g); g.connect(to); return g; };
+  const noiseSrc = (type, freq, q, level, decay, attack = 0.001, to) => {
+    const s = ctx.createBufferSource(); s.buffer = noise(ctx);
     const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
-    s.connect(f); env(f, level, decay); s.start(t); s.stop(t + decay + 0.05); };
-  const tone = (f0, f1, level, decay, type="sine") => { const o = ctx.createOscillator(); o.type = type;
-    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + decay * 0.6);
-    env(o, level, decay); o.start(t); o.stop(t + decay + 0.05); };
+    s.connect(f); env(f, level, attack, decay, to); s.start(t); s.stop(t + attack + decay + 0.05); return f; };
+  const osc = (type, f0, f1, glide, level, decay, attack = 0.002, to) => {
+    const o = ctx.createOscillator(); o.type = type;
+    o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + glide);
+    env(o, level, attack, decay, to); o.start(t); o.stop(t + attack + decay + 0.05); };
+  const metal = (scale, bp, hp, level, decay) => {  // TR-808 style cymbal source
+    const mix = ctx.createGain(); mix.gain.value = 0.35;
+    for (const f of METAL_FREQS) { const o = ctx.createOscillator(); o.type = "square";
+      o.frequency.value = f * scale; o.connect(mix); o.start(t); o.stop(t + decay + 0.1); }
+    const b = ctx.createBiquadFilter(); b.type = "bandpass"; b.frequency.value = bp; b.Q.value = 0.9;
+    const hpf = ctx.createBiquadFilter(); hpf.type = "highpass"; hpf.frequency.value = hp;
+    mix.connect(b); b.connect(hpf); env(hpf, level, 0.001, decay); };
   switch (note) {
-    case 36: tone(140, 42, 1.0, 0.32); break;                                   // kick
-    case 38: tone(190, 140, 0.35, 0.12, "triangle"); nz("bandpass", 1800, 0.8, 0.6, 0.17); break; // snare
-    case 39: for (const d of [0, 0.012, 0.024]) { const tt = t + d; const s = ctx.createBufferSource(); s.buffer = noise(ctx);
-               const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 1300; f.Q.value = 1.2;
-               const g = ctx.createGain(); g.gain.setValueAtTime(0.9 * v, tt); g.gain.exponentialRampToValueAtTime(0.0001, tt + 0.09);
-               s.connect(f); f.connect(g); g.connect(out); s.start(tt); s.stop(tt + 0.12); } break; // clap
-    case 37: tone(1700, 1500, 0.4, 0.04, "square"); break;                    // rim
-    case 42: case 44: nz("highpass", 7500, 0.7, 0.32, note === 44 ? 0.05 : 0.045); break; // closed / pedal hat
-    case 46: nz("highpass", 7000, 0.7, 0.3, 0.32); break;                      // open hat
-    case 51: nz("bandpass", 5200, 2.5, 0.5, 0.45); tone(3100, 3000, 0.04, 0.4, "square"); break; // ride
-    case 49: nz("highpass", 4500, 0.6, 0.45, 1.3); break;                      // crash
-    case 50: tone(260, 190, 0.6, 0.25); break;                                 // high tom
-    case 47: tone(200, 145, 0.6, 0.28); break;                                 // mid tom
-    case 45: tone(150, 105, 0.6, 0.3); break;                                  // low tom
+    case 36:                                                   // kick
+      osc("sine", 165, 48, 0.07, 1.0, 0.42, 0.002, kit.drive);
+      osc("sine", 55, 50, 0.2, 0.35, 0.3, 0.004, kit.drive);
+      noiseSrc("highpass", 3200, 0.7, 0.35, 0.012);            // beater click
+      break;
+    case 38:                                                   // snare
+      osc("triangle", 330, 230, 0.03, 0.42, 0.09);
+      osc("triangle", 185, 160, 0.03, 0.5, 0.12);
+      noiseSrc("bandpass", 3200, 0.6, 1.0, 0.2);
+      noiseSrc("highpass", 6500, 0.7, 0.45, 0.13);
+      break;
+    case 39:                                                   // clap
+      for (const d of [0, 0.011, 0.023]) { const tt = t + d;
+        const s = ctx.createBufferSource(); s.buffer = noise(ctx);
+        const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 1150; f.Q.value = 1.4;
+        const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, tt);
+        g.gain.exponentialRampToValueAtTime(1.3 * v, tt + 0.001); g.gain.exponentialRampToValueAtTime(0.0001, tt + 0.03);
+        s.connect(f); f.connect(g); g.connect(kit.dry); s.start(tt); s.stop(tt + 0.06); }
+      noiseSrc("bandpass", 1150, 1.2, 0.9, 0.2, 0.03);
+      break;
+    case 37:                                                   // rim / cross-stick
+      osc("triangle", 1720, 1700, 0.01, 0.9, 0.04, 0.001);
+      osc("square", 480, 470, 0.01, 0.2, 0.025, 0.001);
+      break;
+    case 42: metal(1, 10000, 7000, 2.0, 0.06);                 // closed hat
+             noiseSrc("highpass", 9000, 0.7, 0.12, 0.04); break;
+    case 44: metal(1, 9000, 6500, 1.4, 0.045); break;          // pedal hat
+    case 46: metal(1, 10000, 6500, 1.7, 0.38);                // open hat
+             noiseSrc("highpass", 8500, 0.7, 0.1, 0.3); break;
+    case 51: metal(1.17, 7500, 4000, 0.55, 1.0);               // ride
+             osc("sine", 4900, 4850, 0.01, 0.1, 0.6, 0.001); break;
+    case 49: metal(1.08, 8000, 3500, 0.75, 1.7);               // crash
+             noiseSrc("highpass", 4500, 0.6, 0.45, 1.4, 0.002); break;
+    case 50: osc("sine", 230, 160, 0.12, 0.85, 0.32); noiseSrc("lowpass", 1800, 0.7, 0.12, 0.05); break; // high tom
+    case 47: osc("sine", 175, 120, 0.14, 0.85, 0.36); noiseSrc("lowpass", 1500, 0.7, 0.12, 0.05); break; // mid tom
+    case 45: osc("sine", 130, 88, 0.16, 0.9, 0.42); noiseSrc("lowpass", 1200, 0.7, 0.12, 0.05); break;   // low tom
   }
 }
 
@@ -568,7 +647,7 @@ async function synthToggle(songId, p, withAudio, half) {
   const spb = 60 / h.tempo, t0 = ctx.currentTime + 0.15;
   const master = ctx.createGain(); master.gain.value = withAudio ? 0.55 : 0.8; master.connect(ctx.destination);
   const chordBus = ctx.createBiquadFilter(); chordBus.type = "lowpass"; chordBus.frequency.value = 2200; chordBus.connect(master);
-  const bassBus = ctx.createBiquadFilter(); bassBus.type = "lowpass"; bassBus.frequency.value = 700; bassBus.connect(master);
+  const bassBus = ctx.createGain(); bassBus.gain.value = 1.0; bassBus.connect(master);
   const voice = (freq, start, dur, type, bus, level, decay) => {
     const o = ctx.createOscillator(), g = ctx.createGain();
     o.type = type; o.frequency.value = freq;
@@ -581,13 +660,14 @@ async function synthToggle(songId, p, withAudio, half) {
   const drumBox = document.querySelector(`[data-drums="${songId}|${p.part}"]`);
   if (!drumBox || drumBox.checked) {
     const drumBus = ctx.createGain(); drumBus.gain.value = withAudio ? 0.6 : 0.85; drumBus.connect(master);
-    for (const [beat, note, vel] of h.drums) drum(ctx, drumBus, note, t0 + beat * spb, vel / 127);
+    const kit = drumKit(ctx, drumBus);
+    for (const [beat, note, vel] of h.drums) drum(ctx, kit, note, t0 + beat * spb, vel / 127);
   }
   const song = state.songs.find(x => x.id === songId);
   for (const g of effSegments(song, p, h)) {
     const s0 = t0 + g.beat * spb, s1 = t0 + g.end * spb;
     for (const k of g.keys) voice(mtof(k), s0, s1 - s0, "triangle", chordBus, 0.09, 0.55);
-    for (let b = g.beat; b < g.end; b++) voice(mtof(g.bass), t0 + b * spb, spb * 0.85, "sawtooth", bassBus, 0.22, 0.6);
+    for (let b = g.beat; b < g.end; b++) bassNote(ctx, bassBus, mtof(g.bass), t0 + b * spb, spb * 0.9, b === g.beat ? 1 : 0.82);
   }
   if (buffer) {
     const src = ctx.createBufferSource(), gain = ctx.createGain();
