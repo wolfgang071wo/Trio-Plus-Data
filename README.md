@@ -82,7 +82,10 @@ The tempo is taken from the loop length, so the MIDI lines up with the
 exported audio. Chord types the pedal was not clearly tested on are marked
 with `?` and played as triads. Short transitional codes on the same root
 are folded into the neighbouring chord, and the pedal's key estimate is
-written as the MIDI key signature and shown in the app. Drums are generated inside the pedal and are
+written as the MIDI key signature and shown in the app. The app can play
+the same notes with a small built-in synthesizer ("Akkorde anhören"), alone
+or sample-aligned with the recording ("Mit Aufnahme"), highlighting the
+current chord. Drums are generated inside the pedal and are
 not in the file.
 
 ### WAV into a part

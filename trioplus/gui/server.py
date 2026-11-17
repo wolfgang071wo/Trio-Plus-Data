@@ -137,6 +137,20 @@ def _dialog(kind: str) -> str:
     return result["path"]
 
 
+def _harmony(an, seconds: float) -> dict:
+    """Chord data for the app, with the same notes the MIDI export writes."""
+    from ..midi import _bass_key, _chord_keys
+
+    segs = []
+    for i, c in enumerate(an.chords):
+        end = an.chords[i + 1].beat if i + 1 < len(an.chords) else an.beats
+        segs.append({"beat": c.beat, "end": end, "name": c.name,
+                     "keys": _chord_keys(c.root, c.intervals), "bass": _bass_key(c.root)})
+    return {"chords": [c.name for c in an.chords], "key": an.key_name,
+            "tempo": round(an.tempo_for(seconds), 3), "bars": an.bars, "beats": an.beats,
+            "time": f"{an.beats_per_bar}/4", "segments": segs}
+
+
 class Library:
     """Open cards and song files, with a small cache of decoded songs."""
 
@@ -250,9 +264,12 @@ class Library:
                 if p.trained:
                     try:
                         an = analyse(p)
-                        harmony[p.number] = {"chords": [c.name for c in an.chords], "key": an.key_name,
-                                             "tempo": round(an.tempo_for(part_seconds(p)), 1),
-                                             "bars": an.bars, "time": f"{an.beats_per_bar}/4"}
+                        h = _harmony(an, part_seconds(p))
+                        try:
+                            h["half"] = _harmony(analyse(p, 2), part_seconds(p))
+                        except TlsdError:
+                            h["half"] = None
+                        harmony[p.number] = h
                     except TlsdError:
                         pass
             info = {

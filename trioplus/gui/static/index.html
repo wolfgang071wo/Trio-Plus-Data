@@ -76,7 +76,9 @@ main{overflow:auto;padding:1.4rem 1.8rem 3rem}
 .note{color:var(--muted);font-size:.92rem;margin:.2rem 0}
 .chords{display:flex;flex-wrap:wrap;gap:.4rem 1rem;align-items:center;margin-top:.5rem}
 .chords .meta{color:var(--muted);font-size:.9rem}
-.chords .seq{font:600 1.15rem var(--cond);letter-spacing:.01em;white-space:pre-wrap}
+.chords .seq{font:600 1.15rem var(--cond);letter-spacing:.01em;display:flex;flex-wrap:wrap;gap:.2rem .55rem}
+.chords .seq span{border-radius:4px;padding:0 .15rem;transition:background .08s}
+.chords .seq span.on{background:var(--led-green);color:var(--panel)}
 .chords button{padding:.25rem .55rem;font-size:.85rem}
 .builder{margin-top:2rem;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:1rem 1.2rem}
 .builder h2{font:700 1.5rem var(--cond);margin:0 0 .2rem}
@@ -217,6 +219,7 @@ function bandText(p) {
 }
 
 function renderSong() {
+  synthStop();
   const s = state.songs.find(x => x.id === current);
   if (!s) { current = null; return renderEmpty(); }
   const src = state.sources.find(x => x.id === s.source);
@@ -272,10 +275,16 @@ function renderSong() {
       }
       if (!any) body.append(el("p", {class:"note"}, "Gelernt, aber ohne Aufnahme."));
       if (p.harmony) {
+        const hasAudio = p.tracks && (p.tracks.main.has_audio || p.tracks.overdub.has_audio);
+        const pid = `${s.id}|${p.part}`;
         body.append(el("div", {class:"chords"},
           el("span", {class:"meta"}, `${p.harmony.bars} Takte ${p.harmony.time}, ${p.harmony.tempo.toFixed(0)} BPM` +
             (p.harmony.key ? `, Tonart ${p.harmony.key}` : "")),
-          el("span", {class:"seq"}, p.harmony.chords.join("  ")),
+          el("span", {class:"seq", "data-seq":pid}, p.harmony.segments.map((g, i) => el("span", {"data-i":i}, g.name))),
+          el("button", {"data-synth":`${pid}|0`, onclick: run(() => synthToggle(s.id, p, false, false)),
+            title:"Akkorde und Bass so anhören, wie sie in der MIDI-Datei stehen"}, "Akkorde anhören"),
+          hasAudio ? el("button", {"data-synth":`${pid}|1`, onclick: run(() => synthToggle(s.id, p, true, false)),
+            title:"Akkorde und Bass zusammen mit der Aufnahme"}, "Mit Aufnahme") : null,
           el("button", {onclick: run(() => doExport({song:s.id, what:"midi", part:p.part})),
             title:"Akkorde und Bass-Grundtöne dieses Parts als MIDI-Datei"}, "MIDI"),
           el("button", {onclick: run(() => doExport({song:s.id, what:"midi", part:p.part, half:true})),
@@ -360,6 +369,7 @@ function paintWave(c, peaks, key) {
 
 const player = $("#player");
 function togglePlay(song, part, track, at) {
+  synthStop();
   const key = `${song}|${part}|${track}`;
   if (playing && playing.key === key && at === undefined) { player.pause(); return; }
   playing = {key, progress:0};
@@ -392,6 +402,82 @@ async function importWav(song, part, mode) {
   if (r.info.truncated) msg += ` (WAV war länger als der Part und wurde gekürzt)`;
   status(msg, {reveal:true});
 }
+
+// --- chord preview: plays the same notes as the MIDI export -----------------
+let synth = null;  // {ctx, key, raf}
+const audioBuffers = {};
+const mtof = n => 440 * Math.pow(2, (n - 69) / 12);
+function synthStop() {
+  if (!synth) return;
+  cancelAnimationFrame(synth.raf);
+  try { synth.ctx.close(); } catch (e) {}
+  for (const sp of document.querySelectorAll(".seq span.on")) sp.classList.remove("on");
+  synth = null;
+  updateSynthButtons();
+}
+function updateSynthButtons() {
+  for (const b of document.querySelectorAll("[data-synth]")) {
+    const on = synth && synth.key === b.dataset.synth;
+    b.textContent = on ? "Stopp" : (b.dataset.synth.endsWith("|1") ? "Mit Aufnahme" : "Akkorde anhören");
+  }
+}
+async function synthToggle(songId, p, withAudio, half) {
+  const key = `${songId}|${p.part}|${withAudio ? 1 : 0}`;
+  const wasMine = synth && synth.key === key;
+  synthStop();
+  if (playing) player.pause();
+  if (wasMine) return;
+  const h = half && p.harmony.half ? p.harmony.half : p.harmony;
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  synth = {ctx, key, raf: 0};
+  updateSynthButtons();
+  let buffer = null;
+  if (withAudio) {
+    const track = p.current || (p.tracks.main.has_audio ? "main" : "overdub");
+    const bk = `${songId}|${p.part}|${track}`;
+    if (!audioBuffers[bk]) {
+      const r = await fetch(`/api/wav?song=${encodeURIComponent(songId)}&part=${p.part}&track=${track}&t=${TOKEN}`);
+      audioBuffers[bk] = await r.arrayBuffer();
+    }
+    if (!synth || synth.ctx !== ctx) return;
+    buffer = await ctx.decodeAudioData(audioBuffers[bk].slice(0));
+  }
+  const spb = 60 / h.tempo, t0 = ctx.currentTime + 0.15;
+  const master = ctx.createGain(); master.gain.value = withAudio ? 0.55 : 0.8; master.connect(ctx.destination);
+  const chordBus = ctx.createBiquadFilter(); chordBus.type = "lowpass"; chordBus.frequency.value = 2200; chordBus.connect(master);
+  const bassBus = ctx.createBiquadFilter(); bassBus.type = "lowpass"; bassBus.frequency.value = 700; bassBus.connect(master);
+  const voice = (freq, start, dur, type, bus, level, decay) => {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0, start);
+    g.gain.linearRampToValueAtTime(level, start + 0.012);
+    g.gain.setTargetAtTime(level * decay, start + 0.03, 0.25);
+    g.gain.setTargetAtTime(0, start + Math.max(0.05, dur - 0.04), 0.03);
+    o.connect(g); g.connect(bus); o.start(start); o.stop(start + dur + 0.25);
+  };
+  for (const g of h.segments) {
+    const s0 = t0 + g.beat * spb, s1 = t0 + g.end * spb;
+    for (const k of g.keys) voice(mtof(k), s0, s1 - s0, "triangle", chordBus, 0.09, 0.55);
+    for (let b = g.beat; b < g.end; b++) voice(mtof(g.bass), t0 + b * spb, spb * 0.85, "sawtooth", bassBus, 0.22, 0.6);
+  }
+  if (buffer) {
+    const src = ctx.createBufferSource(), gain = ctx.createGain();
+    gain.gain.value = 0.9; src.buffer = buffer; src.connect(gain); gain.connect(ctx.destination); src.start(t0);
+  }
+  const total = h.beats * spb;
+  const spans = document.querySelectorAll(`[data-seq="${songId}|${p.part}"] span`);
+  const tick = () => {
+    if (!synth || synth.ctx !== ctx) return;
+    const beat = (ctx.currentTime - t0) / spb;
+    if (ctx.currentTime - t0 > total + 0.3) { synthStop(); return; }
+    let idx = -1;
+    h.segments.forEach((g, i) => { if (beat >= g.beat && beat < g.end) idx = i; });
+    spans.forEach((sp, i) => sp.classList.toggle("on", i === idx && h === p.harmony));
+    synth.raf = requestAnimationFrame(tick);
+  };
+  synth.raf = requestAnimationFrame(tick);
+}
+
 async function doExport(body) {
   const r = await api("/api/export", body);
   status(r.files.length === 1 ? `Gespeichert: ${r.files[0]}` : `${r.files.length} Dateien gespeichert.`, {reveal:true});
