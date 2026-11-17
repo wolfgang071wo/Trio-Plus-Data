@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "trioplus"
 dynamic = ["version"]
-description = "Read, extract and rebuild DigiTech TRIO+ song files (.tlsd)"
+description = "TrioTool: songs, audio, chords and MIDI from the DigiTech TRIO+ pedal"
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.9"
