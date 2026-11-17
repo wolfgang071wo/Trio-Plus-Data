@@ -14,6 +14,9 @@ dependencies = []
 [project.optional-dependencies]
 test = ["pytest"]
 
+[project.urls]
+Homepage = "https://github.com/wolfgang071wo/TrioTool"
+
 [project.scripts]
 trio = "trioplus.cli:main"
 trio-gui = "trioplus.gui.server:main"

@@ -13,7 +13,7 @@ and a Raspberry Pi.
 
 ## Download
 
-**Windows:** [TrioTool.exe from the latest release](https://github.com/wolfgang071wo/Trio-Plus-Data/releases/latest)
+**Windows:** [TrioTool.exe from the latest release](https://github.com/wolfgang071wo/TrioTool/releases/latest)
 (no installation; double-click, the app opens in your browser; Windows may
 warn because the file is not signed: "More info" → "Run anyway").
 

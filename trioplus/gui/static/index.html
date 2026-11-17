@@ -31,6 +31,7 @@ button:disabled{opacity:.45;cursor:default}
 header{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:.6rem 1rem;align-items:center;padding:.8rem 1.2rem;border-bottom:1px solid var(--line);background:var(--panel)}
 .brand{font:700 1.6rem/1 var(--cond);letter-spacing:.02em;margin-right:auto;display:flex;align-items:baseline;gap:.6rem}
 .brand small{font:500 .95rem var(--cond);color:var(--muted)}
+.brand a{color:inherit}
 .export{display:flex;align-items:center;gap:.5rem;font-size:.9rem;color:var(--muted)}
 .export code{font:inherit;color:var(--graphite);white-space:nowrap}
 aside{border-right:1px solid var(--line);overflow:auto;padding:1rem .8rem}
@@ -114,7 +115,8 @@ select,input[type=text]{border:1px solid var(--line);background:#fff;border-radi
 <body>
 <div class="shell">
   <header>
-    <div class="brand">TRIO Tool <small id="ver"></small></div>
+    <div class="brand">TRIO Tool <small id="ver"></small>
+      <small><a href="https://github.com/wolfgang071wo/TrioTool" target="_blank" rel="noopener">Projektseite</a></small></div>
     <button id="openCard">Karte oder Song öffnen…</button>
     <button id="openFolder">Ordner öffnen…</button>
     <div class="export">Speichern in <code id="exportDir" title=""></code>

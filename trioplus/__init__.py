@@ -1,5 +1,5 @@
 """Library and command line for DigiTech TRIO+ song files (.tlsd)."""
 
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 
 from .tlsd import Part, Song, TlsdError, split_tracks, trim_silence  # noqa: E402,F401
