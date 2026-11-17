@@ -78,6 +78,12 @@ def build_midi(segments: list[tuple[str, Analysis, int]], tempo: float, title: s
             meta.meta(tick, 0x58, bytes([ts[0], 2, 24, 8]))
             last_ts = ts
         meta.meta(tick, 0x07, label.encode("ascii", "replace"))
+        if an.key is not None:
+            first = an.chords[0]
+            minor = first.root == an.key and first.kind in (4, 6)
+            tonic = (an.key + 3) % 12 if minor else an.key  # relative major
+            sharps = {0: 0, 7: 1, 2: 2, 9: 3, 4: 4, 11: 5, 6: 6, 1: -5, 8: -4, 3: -3, 10: -2, 5: -1}[tonic]
+            meta.meta(tick, 0x59, bytes([sharps & 0xFF, 1 if minor else 0]))
         for _ in range(repeats):
             spans = an.chords + [None]
             for c, nxt in zip(an.chords, spans[1:]):
@@ -99,7 +105,7 @@ def part_midi(part: Part, title: str, section: int | None = None, repeats: int =
     an = analyse(part, section)
     tempo = an.tempo_for(part_seconds(part))
     data = build_midi([(f"Part {part.number}", an, repeats)], tempo, title)
-    return data, {"part": part.number, "bars": an.bars, "time": f"{an.beats_per_bar}/4",
+    return data, {"part": part.number, "bars": an.bars, "time": f"{an.beats_per_bar}/4", "key": an.key_name,
                   "tempo": round(tempo, 2), "chords": [c.name for c in an.chords], "section": an.section}
 
 

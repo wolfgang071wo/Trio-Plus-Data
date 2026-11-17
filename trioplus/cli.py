@@ -270,7 +270,7 @@ def cmd_midi(args) -> int:
                 if "error" in r:
                     print(f"{path} part {r['part']}: {r['error']}", file=sys.stderr)
                 else:
-                    print(f"wrote {r['path']}  {r['bars']} bars {r['time']} at {r['tempo']} BPM: "
+                    print(f"wrote {r['path']}  {r['bars']} bars {r['time']} at {r['tempo']} BPM, key {r['key']}: "
                           + " ".join(r["chords"]))
     if args.json:
         print(json.dumps(report, indent=2))

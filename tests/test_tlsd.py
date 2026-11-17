@@ -314,3 +314,27 @@ def test_cli_midi(tmp_path):
     part = Song.load(SONG_05).part(1)
     assert abs(m.length - len(part.tracks()["main"]) / 2 / 44100) < 0.05
     assert any(msg.type == "note_on" for msg in m.tracks[2])
+
+
+def test_smooth_folds_transitional_codes():
+    from trioplus.analysis import Chord, smooth
+
+    seq = [Chord(0, 5, 0), Chord(1, 5, 1), Chord(2, 5, 0), Chord(8, 7, 0)]
+    assert [(c.beat, c.root, c.kind) for c in smooth(seq)] == [(0, 5, 0), (8, 7, 0)]
+    seq = [Chord(0, 9, 0), Chord(4, 2, 20), Chord(5, 2, 0), Chord(8, 4, 0)]
+    assert [(c.beat, c.root, c.kind) for c in smooth(seq)] == [(0, 9, 0), (4, 2, 0), (8, 4, 0)]
+    long_unknown = [Chord(0, 2, 20), Chord(8, 4, 0)]
+    assert smooth(long_unknown)[0].kind == 20
+
+
+def test_card_history(tmp_path):
+    from trioplus.history import compare
+
+    base = {"time": 1.0, "selected": 6, "slots": [{"h": "x", "present": False}] * 60}
+    same = compare(base, dict(base, time=2.0))
+    assert same["nothing"]
+    slots = list(base["slots"])
+    slots[26] = {"h": "y", "present": True}
+    rep = compare(base, {"time": 2.0, "selected": 7, "slots": slots})
+    assert rep["added"] == [{"song": 6, "part": 2}] and not rep["nothing"] and rep["selected_now"] == 7
+    assert compare(None, base)["first"]

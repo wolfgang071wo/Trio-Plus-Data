@@ -64,6 +64,14 @@ users can download `TrioTool.exe` from the releases; it is built by
 `.github/workflows/windows-exe.yml`. Fonts: Barlow (SIL Open Font License,
 see `trioplus/gui/static/fonts/OFL.txt`).
 
+### What the pedal saved
+
+Every time the TRIO Tool opens a `TRIOPLUS.DAT` it compares the card with the
+state it saw last time (hashes of all part slots and the selected song, kept
+in `%APPDATA%\TrioTool` or `~/.config/trioplus`) and reports what is new,
+changed or deleted, or that the pedal saved nothing at all. Useful because
+the pedal saves silently and a failing card slot shows no error.
+
 ### Chords as MIDI
 
 The pedal stores what it learned in block A: bars, time signature and a
@@ -72,7 +80,9 @@ writes this as a Standard MIDI File per part: chord names as markers, a
 chord track (electric piano) and a bass track with the root on every beat.
 The tempo is taken from the loop length, so the MIDI lines up with the
 exported audio. Chord types the pedal was not clearly tested on are marked
-with `?` and played as triads. Drums are generated inside the pedal and are
+with `?` and played as triads. Short transitional codes on the same root
+are folded into the neighbouring chord, and the pedal's key estimate is
+written as the MIDI key signature and shown in the app. Drums are generated inside the pedal and are
 not in the file.
 
 ### WAV into a part

@@ -39,6 +39,8 @@ main{overflow:auto;padding:1.4rem 1.8rem 3rem}
 .src h2{font:600 1.05rem var(--cond);margin:0 0 .4rem;display:flex;justify-content:space-between;align-items:center;gap:.5rem}
 .src h2 span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .src h2 button{padding:.1rem .45rem;font-size:.8rem}
+.changes{font-size:.85rem;line-height:1.35;margin:.1rem .2rem .6rem;color:var(--muted)}
+.changes.warn{color:var(--led-red)}
 .song{display:grid;grid-template-columns:2.2rem 1fr auto;align-items:center;gap:.4rem;width:100%;text-align:left;border:1px solid transparent;background:none;padding:.35rem .45rem;border-radius:6px}
 .song:hover{border-color:var(--line)}
 .song[aria-current="true"]{background:var(--panel);border-color:var(--graphite)}
@@ -155,6 +157,20 @@ function partState(p) {
 }
 function songLabel(s) { return s.number ? `Song ${String(s.number).padStart(2,"0")}` : (s.file || s.name); }
 
+function changesText(c) {
+  if (!c) return "";
+  if (c.first) return "Erstes Öffnen dieser Karte. Ab jetzt zeigt die App beim Öffnen, was das Pedal neu gespeichert hat.";
+  const when = c.since ? new Date(c.since * 1000).toLocaleString("de-AT", {dateStyle:"short", timeStyle:"short"}) : "dem letzten Öffnen";
+  if (c.nothing) return `Seit ${when} hat das Pedal nichts auf diese Karte gespeichert.`;
+  const fmt = list => list.map(x => `Song ${String(x.song).padStart(2,"0")} Part ${x.part}`).join(", ");
+  const bits = [];
+  if (c.added.length) bits.push(`neu: ${fmt(c.added)}`);
+  if (c.changed.length) bits.push(`geändert: ${fmt(c.changed)}`);
+  if (c.removed.length) bits.push(`gelöscht: ${fmt(c.removed)}`);
+  if (c.selected_before !== c.selected_now && c.selected_now) bits.push(`Song-Auswahl jetzt Song ${String(c.selected_now).padStart(2,"0")}`);
+  return `Seit ${when} ${bits.join("; ")}.`;
+}
+
 function renderSources() {
   const box = $("#sources"); box.replaceChildren();
   if (!state.sources.length) {
@@ -167,6 +183,7 @@ function renderSources() {
       el("h2", {}, el("span", {title:src.path}, src.kind === "card" ? `Karte: ${src.name}` : src.name),
         el("button", {onclick: run(async () => { const r = await api("/api/close", {source:src.id}); state = r.state;
           if (current && current.startsWith(src.id + ":")) current = null; render(); }), "aria-label":`${src.name} schließen`}, "Schließen")),
+      src.changes ? el("p", {class:"changes" + (src.changes.nothing ? " warn" : "")}, changesText(src.changes)) : null,
       songs.map(s => el("button", {class:"song" + (s.recorded ? "" : " empty"), "aria-current": s.id === current ? "true" : "false",
           onclick: () => { current = s.id; render(); }},
         el("span", {class:"num"}, s.number ? String(s.number).padStart(2,"0") : "·"),
@@ -256,7 +273,8 @@ function renderSong() {
       if (!any) body.append(el("p", {class:"note"}, "Gelernt, aber ohne Aufnahme."));
       if (p.harmony) {
         body.append(el("div", {class:"chords"},
-          el("span", {class:"meta"}, `${p.harmony.bars} Takte ${p.harmony.time}, ${p.harmony.tempo.toFixed(0)} BPM`),
+          el("span", {class:"meta"}, `${p.harmony.bars} Takte ${p.harmony.time}, ${p.harmony.tempo.toFixed(0)} BPM` +
+            (p.harmony.key ? `, Tonart ${p.harmony.key}` : "")),
           el("span", {class:"seq"}, p.harmony.chords.join("  ")),
           el("button", {onclick: run(() => doExport({song:s.id, what:"midi", part:p.part})),
             title:"Akkorde und Bass-Grundtöne dieses Parts als MIDI-Datei"}, "MIDI"),
@@ -385,6 +403,8 @@ async function openPath(body) {
   const first = state.songs.find(s => r.opened.includes(s.source) && s.recorded) || state.songs.find(s => r.opened.includes(s.source));
   if (first) current = first.id;
   render();
+  const card = state.sources.find(x => r.opened.includes(x.id) && x.changes);
+  if (card) status(changesText(card.changes), {error: !!card.changes.nothing});
 }
 function render() {
   $("#ver").textContent = state.version ? "Version " + state.version : "";

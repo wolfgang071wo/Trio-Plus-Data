@@ -54,6 +54,11 @@ class Analysis:
     beats_per_bar: int
     pedal_tempo: float  # the pedal's own estimate
     chords: list[Chord]
+    key: int | None = None  # pitch class of the pedal's key estimate
+
+    @property
+    def key_name(self) -> str:
+        return NOTES[self.key] if self.key is not None else ""
 
     @property
     def beats(self) -> int:
@@ -98,8 +103,33 @@ def analyse(part: Part, section: int | None = None) -> Analysis:
         last = pos
     if not chords:
         raise TlsdError(f"Part {part.number}: keine Akkorde gefunden")
+    key = _u32(a, base + 12)
     return Analysis(section, _u32(a, base) == 1, bars, bpb,
-                    sum(tempos) / len(tempos) if tempos else 120.0, chords)
+                    sum(tempos) / len(tempos) if tempos else 120.0, smooth(chords),
+                    key if key < 12 else None)
+
+
+def smooth(chords: list[Chord], max_beats: int = 2) -> list[Chord]:
+    """Fold short segments with an unidentified chord type into a neighbour
+    on the same root (the pedal emits codes such as 1 or 20 around chord
+    changes), then merge repeats."""
+    out: list[Chord] = []
+    for i, c in enumerate(chords):
+        nxt = chords[i + 1] if i + 1 < len(chords) else None
+        short = nxt is not None and nxt.beat - c.beat <= max_beats
+        if c.kind not in KINDS and short:
+            if out and out[-1].root == c.root:
+                continue  # previous chord simply lasts longer
+            if nxt.root == c.root:
+                out.append(Chord(c.beat, nxt.root, nxt.kind))  # next chord starts earlier
+                continue
+        out.append(c)
+    merged: list[Chord] = []
+    for c in out:
+        if merged and (merged[-1].root, merged[-1].kind) == (c.root, c.kind):
+            continue
+        merged.append(c)
+    return merged
 
 
 def part_seconds(part: Part) -> float:

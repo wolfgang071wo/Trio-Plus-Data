@@ -140,7 +140,8 @@ def _dialog(kind: str) -> str:
 class Library:
     """Open cards and song files, with a small cache of decoded songs."""
 
-    def __init__(self, export_dir: Path):
+    def __init__(self, export_dir: Path, history_dir: Path | None = None):
+        self.history_dir = history_dir
         self.lock = threading.RLock()
         self.sources: list[dict] = []
         self.export_dir = export_dir
@@ -171,8 +172,13 @@ class Library:
             with open(p, "rb") as fh:
                 magic = fh.read(4)
             if magic == b"TLSD":
+                from ..history import check
                 card = Card(p)
-                self.sources.append({"id": sid, "kind": "card", "path": str(p), "card": card})
+                try:
+                    changes = check(card, self.history_dir)
+                except Exception:  # never block opening a card
+                    changes = None
+                self.sources.append({"id": sid, "kind": "card", "path": str(p), "card": card, "changes": changes})
             else:
                 Song.load(p)  # validate
                 self.sources.append({"id": sid, "kind": "file", "path": str(p)})
@@ -244,7 +250,7 @@ class Library:
                 if p.trained:
                     try:
                         an = analyse(p)
-                        harmony[p.number] = {"chords": [c.name for c in an.chords],
+                        harmony[p.number] = {"chords": [c.name for c in an.chords], "key": an.key_name,
                                              "tempo": round(an.tempo_for(part_seconds(p)), 1),
                                              "bars": an.bars, "time": f"{an.beats_per_bar}/4"}
                     except TlsdError:
@@ -289,7 +295,7 @@ class Library:
                 "version": __version__,
                 "export_dir": str(self.export_dir),
                 "sources": [{"id": s["id"], "kind": s["kind"], "path": s["path"],
-                             "name": Path(s["path"]).name} for s in self.sources],
+                             "name": Path(s["path"]).name, "changes": s.get("changes")} for s in self.sources],
                 "songs": [self.info(i) for i in self.song_ids()],
             }
 
@@ -501,8 +507,9 @@ class Handler(BaseHTTPRequestHandler):
         return self._error("nicht gefunden", HTTPStatus.NOT_FOUND)
 
 
-def make_server(host: str = "127.0.0.1", port: int = 8765, export_dir: Path | None = None):
-    lib = Library(export_dir or _default_export_dir())
+def make_server(host: str = "127.0.0.1", port: int = 8765, export_dir: Path | None = None,
+                history_dir: Path | None = None):
+    lib = Library(export_dir or _default_export_dir(), history_dir)
     token = secrets.token_urlsafe(16)
     handler = type("BoundHandler", (Handler,), {"lib": lib, "token": token})
     for p in range(port, port + 20):
