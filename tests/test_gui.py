@@ -72,3 +72,16 @@ def test_errors_are_reported(server):
     with pytest.raises(urllib.error.HTTPError) as e:
         call("/api/open", {"path": str(tmp / "missing.tlsd")})
     assert e.value.code == 400
+
+
+def test_opening_again_rereads_the_file(server, tmp_path):
+    import shutil
+    call, _ = server
+    f = tmp_path / "song.tlsd"
+    shutil.copy(ROOT / "tlsd_sample_data" / "01.tlsd", f)
+    st = call("/api/open", {"path": str(f)})["state"]
+    assert [p["trained"] for p in st["songs"][0]["parts"]][:3] == [True, True, False]
+    shutil.copy(SONG_05, f)  # the file changes on disk
+    st = call("/api/open", {"path": str(f)})["state"]
+    assert len(st["sources"]) == 1
+    assert [p["trained"] for p in st["songs"][0]["parts"]][:4] == [True, True, True, True]

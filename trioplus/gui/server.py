@@ -171,9 +171,9 @@ class Library:
         if not p.exists():
             raise TlsdError(f"{p} gibt es nicht")
         with self.lock:
-            for s in self.sources:
+            for s in list(self.sources):
                 if Path(s["path"]) == p:
-                    return [s["id"]]
+                    self.close(s["id"])  # opening again re-reads the file
             if p.is_dir():
                 files = sorted(p.glob("*.tlsd")) + sorted(p.glob("*.TLSD"))
                 if (p / "TRIOPLUS.DAT").is_file():

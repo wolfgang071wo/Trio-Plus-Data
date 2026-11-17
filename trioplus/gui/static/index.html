@@ -39,6 +39,7 @@ main{overflow:auto;padding:1.4rem 1.8rem 3rem}
 .src h2{font:600 1.05rem var(--cond);margin:0 0 .4rem;display:flex;justify-content:space-between;align-items:center;gap:.5rem}
 .src h2 span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .src h2 button{padding:.1rem .45rem;font-size:.8rem}
+.src h2 span{flex:1}
 .changes{font-size:.85rem;line-height:1.35;margin:.1rem .2rem .6rem;color:var(--muted)}
 .changes.warn{color:var(--led-red)}
 .song{display:grid;grid-template-columns:2.2rem 1fr auto;align-items:center;gap:.4rem;width:100%;text-align:left;border:1px solid transparent;background:none;padding:.35rem .45rem;border-radius:6px}
@@ -183,6 +184,8 @@ function renderSources() {
     const songs = state.songs.filter(s => s.source === src.id);
     box.append(el("section", {class:"src"},
       el("h2", {}, el("span", {title:src.path}, src.kind === "card" ? `Karte: ${src.name}` : src.name),
+        el("button", {onclick: run(() => openPath({path:src.path})), title:"Datei neu einlesen, z. B. nachdem das Pedal gespeichert hat",
+          "aria-label":`${src.name} neu einlesen`}, "Neu einlesen"),
         el("button", {onclick: run(async () => { const r = await api("/api/close", {source:src.id}); state = r.state;
           if (current && current.startsWith(src.id + ":")) current = null; render(); }), "aria-label":`${src.name} schließen`}, "Schließen")),
       src.changes ? el("p", {class:"changes" + (src.changes.nothing ? " warn" : "")}, changesText(src.changes)) : null,
