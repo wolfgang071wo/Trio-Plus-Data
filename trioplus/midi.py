@@ -3,6 +3,7 @@
 Track 1: tempo, time signature and a marker per chord.
 Track 2: chords (channel 1, electric piano), held for each segment.
 Track 3: bass (channel 2, finger bass), the root on every beat.
+Track 4: stand-in drums for the part's genre (channel 10), see drums.py.
 """
 
 from __future__ import annotations
@@ -59,9 +60,14 @@ def _bass_key(root: int) -> int:
     return 28 + (root - 4) % 12  # E1 .. D#2
 
 
-def build_midi(segments: list[tuple[str, Analysis, int]], tempo: float, title: str) -> bytes:
-    """segments: (label, analysis, repeats) played one after another."""
-    meta, chords, bass = _Track(), _Track(), _Track()
+def build_midi(segments: list[tuple[str, Analysis, int]], tempo: float, title: str,
+               genre: int | None = None) -> bytes:
+    """segments: (label, analysis, repeats) played one after another.
+    genre: TRIO+ genre code for a stand-in drum track, None for no drums."""
+    from .drums import events as drum_events, genre_name
+
+    meta, chords, bass, drums = _Track(), _Track(), _Track(), _Track()
+    drums.meta(0, 0x03, f"Drums ({genre_name(genre)}, stand-in)".encode() if genre is not None else b"Drums")
     meta.meta(0, 0x03, title.encode("ascii", "replace"))
     us = round(60_000_000 / tempo)
     meta.meta(0, 0x51, us.to_bytes(3, "big"))
@@ -94,30 +100,36 @@ def build_midi(segments: list[tuple[str, Analysis, int]], tempo: float, title: s
                     chords.note(start, end - start - 10, 0, k, 80)
                 for b in range(start, end, PPQ):
                     bass.note(b, min(PPQ, end - b) - 30, 1, _bass_key(c.root), 96)
+            if genre is not None:
+                for beat, note, vel, length in drum_events(genre, an.bars, an.beats_per_bar):
+                    t = tick + round(beat * PPQ)
+                    drums.note(t, max(10, round(length * PPQ) - 10), 9, note, vel)
             tick += an.beats * PPQ
-    tracks = [meta.chunk(), chords.chunk(), bass.chunk()]
+    tracks = [meta.chunk(), chords.chunk(), bass.chunk()] + ([drums.chunk()] if genre is not None else [])
     header = b"MThd" + (6).to_bytes(4, "big") + (1).to_bytes(2, "big") + \
         len(tracks).to_bytes(2, "big") + PPQ.to_bytes(2, "big")
     return header + b"".join(tracks)
 
 
-def part_midi(part: Part, title: str, section: int | None = None, repeats: int = 1) -> tuple[bytes, dict]:
+def part_midi(part: Part, title: str, section: int | None = None, repeats: int = 1,
+              drums: bool = True) -> tuple[bytes, dict]:
     an = analyse(part, section)
     tempo = an.tempo_for(part_seconds(part))
-    data = build_midi([(f"Part {part.number}", an, repeats)], tempo, title)
+    genre = part.band()["genre"] if drums else None
+    data = build_midi([(f"Part {part.number}", an, repeats)], tempo, title, genre)
     return data, {"part": part.number, "bars": an.bars, "time": f"{an.beats_per_bar}/4", "key": an.key_name,
                   "tempo": round(tempo, 2), "chords": [c.name for c in an.chords], "section": an.section}
 
 
 def write_song_midi(song: Song, outdir: Path, stem: str, section: int | None = None,
-                    repeats: int = 1) -> list[dict]:
+                    repeats: int = 1, drums: bool = True) -> list[dict]:
     outdir.mkdir(parents=True, exist_ok=True)
     results = []
     for p in song.parts:
         if not p.trained:
             continue
         try:
-            data, info = part_midi(p, f"{song.name} Part {p.number}", section, repeats)
+            data, info = part_midi(p, f"{song.name} Part {p.number}", section, repeats, drums)
         except TlsdError as e:
             results.append({"part": p.number, "error": str(e)})
             continue

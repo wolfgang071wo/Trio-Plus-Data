@@ -81,6 +81,7 @@ main{overflow:auto;padding:1.4rem 1.8rem 3rem}
 .chords .seq span{border-radius:4px;padding:0 .15rem;transition:background .08s}
 .chords .seq span.on{background:var(--led-green);color:var(--panel)}
 .chords button{padding:.25rem .55rem;font-size:.85rem}
+.chords .drumbox{display:flex;align-items:center;gap:.3rem;font-size:.9rem;color:var(--muted);cursor:pointer}
 .builder{margin-top:2rem;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:1rem 1.2rem}
 .builder h2{font:700 1.5rem var(--cond);margin:0 0 .2rem}
 .slots{display:grid;gap:.45rem;margin:.8rem 0}
@@ -120,7 +121,7 @@ select,input[type=text]{border:1px solid var(--line);background:#fff;border-radi
 
 <script>
 const TOKEN = "__TOKEN__";
-const GENRES = {0:"Blues",1:"R&B",2:"Rock"};
+const GENRES = ["Blues","R&B","Rock","Alt-Rock","Metal","Pop","E-Pop","Hip-Hop","Country","Folk","Latin","Jazz"];
 const BASS = {0:"Bass aktiv",1:"Bass einfach",3:"Bass Riff"};
 let state = {sources:[],songs:[]}, current = null, playing = null, cards = [];
 const builder = [null,null,null,null,null];
@@ -282,8 +283,10 @@ function renderSong() {
         const pid = `${s.id}|${p.part}`;
         body.append(el("div", {class:"chords"},
           el("span", {class:"meta"}, `${p.harmony.bars} Takte ${p.harmony.time}, ${p.harmony.tempo.toFixed(0)} BPM` +
-            (p.harmony.key ? `, Tonart ${p.harmony.key}` : "")),
+            (p.harmony.key ? `, Tonart ${p.harmony.key}` : "") + (p.harmony.genre ? `, ${p.harmony.genre}` : "")),
           el("span", {class:"seq", "data-seq":pid}, p.harmony.segments.map((g, i) => el("span", {"data-i":i}, g.name))),
+          el("label", {class:"drumbox", title:"Ersatz-Schlagzeug passend zum Genre (nicht das Original des Pedals)"},
+            el("input", {type:"checkbox", "data-drums":pid, checked:true}), "Drums"),
           el("button", {"data-synth":`${pid}|0`, onclick: run(() => synthToggle(s.id, p, false, false)),
             title:"Akkorde und Bass so anhören, wie sie in der MIDI-Datei stehen"}, "Akkorde anhören"),
           hasAudio ? el("button", {"data-synth":`${pid}|1`, onclick: run(() => synthToggle(s.id, p, true, false)),
@@ -424,6 +427,43 @@ function updateSynthButtons() {
     b.textContent = on ? "Stopp" : (b.dataset.synth.endsWith("|1") ? "Mit Aufnahme" : "Akkorde anhören");
   }
 }
+
+let noiseBuf = null;
+function noise(ctx) {
+  if (noiseBuf && noiseBuf.sampleRate === ctx.sampleRate) return noiseBuf;
+  noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 1.5, ctx.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  return noiseBuf;
+}
+function drum(ctx, out, note, t, v) {
+  const env = (node, level, decay) => { const g = ctx.createGain();
+    g.gain.setValueAtTime(level * v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+    node.connect(g); g.connect(out); return g; };
+  const nz = (type, freq, q, level, decay) => { const s = ctx.createBufferSource(); s.buffer = noise(ctx);
+    const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    s.connect(f); env(f, level, decay); s.start(t); s.stop(t + decay + 0.05); };
+  const tone = (f0, f1, level, decay, type="sine") => { const o = ctx.createOscillator(); o.type = type;
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + decay * 0.6);
+    env(o, level, decay); o.start(t); o.stop(t + decay + 0.05); };
+  switch (note) {
+    case 36: tone(140, 42, 1.0, 0.32); break;                                   // kick
+    case 38: tone(190, 140, 0.35, 0.12, "triangle"); nz("bandpass", 1800, 0.8, 0.6, 0.17); break; // snare
+    case 39: for (const d of [0, 0.012, 0.024]) { const tt = t + d; const s = ctx.createBufferSource(); s.buffer = noise(ctx);
+               const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 1300; f.Q.value = 1.2;
+               const g = ctx.createGain(); g.gain.setValueAtTime(0.9 * v, tt); g.gain.exponentialRampToValueAtTime(0.0001, tt + 0.09);
+               s.connect(f); f.connect(g); g.connect(out); s.start(tt); s.stop(tt + 0.12); } break; // clap
+    case 37: tone(1700, 1500, 0.4, 0.04, "square"); break;                    // rim
+    case 42: case 44: nz("highpass", 7500, 0.7, 0.32, note === 44 ? 0.05 : 0.045); break; // closed / pedal hat
+    case 46: nz("highpass", 7000, 0.7, 0.3, 0.32); break;                      // open hat
+    case 51: nz("bandpass", 5200, 2.5, 0.5, 0.45); tone(3100, 3000, 0.04, 0.4, "square"); break; // ride
+    case 49: nz("highpass", 4500, 0.6, 0.45, 1.3); break;                      // crash
+    case 50: tone(260, 190, 0.6, 0.25); break;                                 // high tom
+    case 47: tone(200, 145, 0.6, 0.28); break;                                 // mid tom
+    case 45: tone(150, 105, 0.6, 0.3); break;                                  // low tom
+  }
+}
+
 async function synthToggle(songId, p, withAudio, half) {
   const key = `${songId}|${p.part}|${withAudio ? 1 : 0}`;
   const wasMine = synth && synth.key === key;
@@ -458,6 +498,11 @@ async function synthToggle(songId, p, withAudio, half) {
     g.gain.setTargetAtTime(0, start + Math.max(0.05, dur - 0.04), 0.03);
     o.connect(g); g.connect(bus); o.start(start); o.stop(start + dur + 0.25);
   };
+  const drumBox = document.querySelector(`[data-drums="${songId}|${p.part}"]`);
+  if (!drumBox || drumBox.checked) {
+    const drumBus = ctx.createGain(); drumBus.gain.value = withAudio ? 0.6 : 0.85; drumBus.connect(master);
+    for (const [beat, note, vel] of h.drums) drum(ctx, drumBus, note, t0 + beat * spb, vel / 127);
+  }
   for (const g of h.segments) {
     const s0 = t0 + g.beat * spb, s1 = t0 + g.end * spb;
     for (const k of g.keys) voice(mtof(k), s0, s1 - s0, "triangle", chordBus, 0.09, 0.55);

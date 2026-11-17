@@ -137,8 +137,9 @@ def _dialog(kind: str) -> str:
     return result["path"]
 
 
-def _harmony(an, seconds: float) -> dict:
+def _harmony(an, seconds: float, genre: int | None = None) -> dict:
     """Chord data for the app, with the same notes the MIDI export writes."""
+    from ..drums import events as drum_events, genre_name
     from ..midi import _bass_key, _chord_keys
 
     segs = []
@@ -148,7 +149,10 @@ def _harmony(an, seconds: float) -> dict:
                      "keys": _chord_keys(c.root, c.intervals), "bass": _bass_key(c.root)})
     return {"chords": [c.name for c in an.chords], "key": an.key_name,
             "tempo": round(an.tempo_for(seconds), 3), "bars": an.bars, "beats": an.beats,
-            "time": f"{an.beats_per_bar}/4", "segments": segs}
+            "time": f"{an.beats_per_bar}/4", "segments": segs,
+            "genre": genre_name(genre) if genre is not None else None,
+            "drums": [[round(b, 4), n, v, l] for b, n, v, l in drum_events(genre, an.bars, an.beats_per_bar)]
+                     if genre is not None else []}
 
 
 class Library:
@@ -264,9 +268,10 @@ class Library:
                 if p.trained:
                     try:
                         an = analyse(p)
-                        h = _harmony(an, part_seconds(p))
+                        g = p.band()["genre"]
+                        h = _harmony(an, part_seconds(p), g)
                         try:
-                            h["half"] = _harmony(analyse(p, 2), part_seconds(p))
+                            h["half"] = _harmony(analyse(p, 2), part_seconds(p), g)
                         except TlsdError:
                             h["half"] = None
                         harmony[p.number] = h
@@ -358,7 +363,7 @@ class Library:
                 if not p.trained:
                     continue
                 try:
-                    data, _ = part_midi(p, f"{info['name']} Part {p.number}", 2 if half else None)
+                    data, _ = part_midi(p, f"{info['name']} Part {p.number}", 2 if half else None, drums=True)
                 except TlsdError:
                     continue
                 out = self._out(f"{base} - Part {p.number}.mid")

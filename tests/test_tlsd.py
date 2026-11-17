@@ -305,7 +305,7 @@ def test_cli_midi(tmp_path):
     files = sorted(tmp_path.glob("*.mid"))
     assert len(files) == 4
     data = files[0].read_bytes()
-    assert data[:4] == b"MThd" and data.count(b"MTrk") == 3
+    assert data[:4] == b"MThd" and data.count(b"MTrk") == 4
     try:
         import mido
     except ImportError:
@@ -338,3 +338,19 @@ def test_card_history(tmp_path):
     rep = compare(base, {"time": 2.0, "selected": 7, "slots": slots})
     assert rep["added"] == [{"song": 6, "part": 2}] and not rep["nothing"] and rep["selected_now"] == 7
     assert compare(None, base)["first"]
+
+
+def test_drum_patterns_cover_genres_and_meters():
+    from trioplus.drums import GENRES, events
+
+    for g in range(len(GENRES)):
+        for bpb in (3, 4):
+            ev = events(g, 4, bpb)
+            assert ev and all(0 <= b < 4 * bpb for b, *_ in ev)
+            assert any(n == 49 and b == 0 for b, n, *_ in ev)  # crash on the one
+    assert events(2, 1, 4, fill=True) == events(2, 1, 4, fill=False)  # no fill in a one-bar part
+
+
+def test_cli_midi_without_drums(tmp_path):
+    assert main(["midi", "--no-drums", "-o", str(tmp_path), str(SONG_05)]) == 0
+    assert sorted(tmp_path.glob("*.mid"))[0].read_bytes().count(b"MTrk") == 3

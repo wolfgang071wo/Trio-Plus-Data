@@ -263,7 +263,7 @@ def cmd_midi(args) -> int:
             section = 2
         else:
             section = args.section
-        results = write_song_midi(song, outdir, path.stem, section, args.repeat)
+        results = write_song_midi(song, outdir, path.stem, section, args.repeat, not args.no_drums)
         report.append({"file": str(path), "parts": results})
         if not args.json:
             for r in results:
@@ -368,7 +368,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = common(sub.add_parser(
         "midi",
-        help="write the chords the pedal learned as MIDI (chords + bass)",
+        help="write the chords the pedal learned as MIDI (chords, bass, stand-in drums)",
         description="One .mid per trained part: tempo and time signature, chord names as markers, "
                     "a chord track and a bass track with the root on every beat. The tempo is "
                     "computed from the loop length, so the file lines up with the audio. Chord "
@@ -380,6 +380,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--section", type=int, choices=[0, 1, 2, 3],
                    help="reading to use: 0 4/4, 1 3/4, 2 4/4 half tempo, 3 3/4 half tempo")
     p.add_argument("--repeat", type=int, default=1, help="repeat the part N times")
+    p.add_argument("--no-drums", action="store_true", help="leave out the stand-in drum track")
     p.set_defaults(func=cmd_midi)
 
     p = common(sub.add_parser("rename", help="write a copy of a song with a new name"))

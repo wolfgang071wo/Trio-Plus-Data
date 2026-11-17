@@ -80,7 +80,10 @@ writes this as a Standard MIDI File per part: chord names as markers, a
 chord track (electric piano) and a bass track with the root on every beat.
 The tempo is taken from the loop length, so the MIDI lines up with the
 exported audio. Chord types the pedal was not clearly tested on are marked
-with `?` and played as triads. Short transitional codes on the same root
+with `?` and played as triads. A fourth track holds stand-in drums for the
+part's genre (`trioplus/drums.py`: original simple grooves in 4/4 or 3/4,
+crash on the one, fill in the last bar; `--no-drums` leaves it out). They
+are not the pedal's drums, which are generated inside the pedal. Short transitional codes on the same root
 are folded into the neighbouring chord, and the pedal's key estimate is
 written as the MIDI key signature and shown in the app. The app can play
 the same notes with a small built-in synthesizer ("Akkorde anhören"), alone
