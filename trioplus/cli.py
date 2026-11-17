@@ -7,6 +7,7 @@
     trio scan IMAGE [--extract DIR] [--json]
     trio import-wav SONG PART WAV -o OUT [--mode replace|mix] [--gain G] [--loop]
     trio midi SONG... [-o DIR] [--half | --section N] [--repeat N]
+    trio daw SONG [-o DIR] [--repeat N] [--no-drums]
     trio rename SONG NAME -o OUT
     trio gui [PATH...]                  (web interface, see trioplus/gui)
 
@@ -277,6 +278,27 @@ def cmd_midi(args) -> int:
     return 0
 
 
+def cmd_daw(args) -> int:
+    from . import __version__
+    from .daw import song_package
+
+    song = Song.load(args.song)
+    out = Path(args.output) if args.output else Path(f"{args.song.stem} - DAW")
+    if out.exists() and any(out.iterdir()) and not args.force:
+        raise CliError(f"{out} exists and is not empty, use --force")
+    r = song_package(song, out, song.name, args.repeat, not args.no_drums, version=__version__)
+    if args.json:
+        print(json.dumps(r, indent=2))
+    else:
+        print(f"wrote {out}: Gitarre.wav ({r['seconds']:.1f} s), Song.mid, Song (festes Tempo).mid, LIESMICH.txt")
+        for e in r["parts"]:
+            if "skipped" in e:
+                print(f"  part {e['part']}: skipped ({e['skipped']})")
+            else:
+                print(f"  part {e['part']}: {e['tempo']:.2f} BPM, audio {e['audio']}, x{e['repeats']}")
+    return 0
+
+
 def cmd_rename(args) -> int:
     song = Song.load(args.song)
     song.name = args.name
@@ -382,6 +404,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repeat", type=int, default=1, help="repeat the part N times")
     p.add_argument("--no-drums", action="store_true", help="leave out the stand-in drum track")
     p.set_defaults(func=cmd_midi)
+
+    p = common(sub.add_parser(
+        "daw",
+        help="song package for a DAW: guitar WAV + MIDI (chords, bass, drums) in sync",
+        description="All trained parts back to back: Gitarre.wav with the track the pedal plays, "
+                    "Song.mid with a tempo/time-signature change per part, a fixed-tempo MIDI "
+                    "variant and a short German how-to (LIESMICH.txt).",
+    ))
+    p.add_argument("song", type=Path)
+    p.add_argument("-o", "--output", help="output folder (default: '<song> - DAW')")
+    p.add_argument("--repeat", type=int, default=1, help="play every part N times")
+    p.add_argument("--no-drums", action="store_true")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=cmd_daw)
 
     p = common(sub.add_parser("rename", help="write a copy of a song with a new name"))
     p.add_argument("song", type=Path)

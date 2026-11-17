@@ -354,3 +354,28 @@ def test_drum_patterns_cover_genres_and_meters():
 def test_cli_midi_without_drums(tmp_path):
     assert main(["midi", "--no-drums", "-o", str(tmp_path), str(SONG_05)]) == 0
     assert sorted(tmp_path.glob("*.mid"))[0].read_bytes().count(b"MTrk") == 3
+
+
+def test_cli_daw_package(tmp_path):
+    out = tmp_path / "pkg"
+    assert main(["daw", str(SONG_05), "-o", str(out), "--repeat", "2"]) == 0
+    names = sorted(p.name for p in out.iterdir())
+    assert names == ["Gitarre.wav", "LIESMICH.txt", "Song (festes Tempo).mid", "Song.mid"]
+    with wave.open(str(out / "Gitarre.wav")) as w:
+        wav_seconds = w.getnframes() / w.getframerate()
+    try:
+        import mido
+    except ImportError:
+        return
+    for f in ("Song.mid", "Song (festes Tempo).mid"):
+        assert abs(mido.MidiFile(out / f).length - wav_seconds) < 0.1
+
+
+def test_chord_edits():
+    from trioplus.analysis import analyse, apply_edits
+
+    an = analyse(Song.load(SONG_05).part(1))
+    ed = apply_edits(an, [{"i": 0, "root": 9, "kind": 4}])
+    assert ed.chords[0].name == "Am" and ed.chords[0].beat == an.chords[0].beat
+    with pytest.raises(TlsdError):
+        apply_edits(an, [{"i": 99, "root": 0, "kind": 0}])

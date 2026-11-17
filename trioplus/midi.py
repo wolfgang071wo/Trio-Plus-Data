@@ -62,58 +62,98 @@ def _bass_key(root: int) -> int:
 
 def build_midi(segments: list[tuple[str, Analysis, int]], tempo: float, title: str,
                genre: int | None = None) -> bytes:
-    """segments: (label, analysis, repeats) played one after another.
-    genre: TRIO+ genre code for a stand-in drum track, None for no drums."""
+    """segments: (label, analysis, repeats) at one tempo; see build_song_midi."""
+    return build_song_midi([(label, an, reps, tempo, genre) for label, an, reps in segments], title)
+
+
+def _key_signature(an: Analysis) -> bytes | None:
+    if an.key is None:
+        return None
+    first = an.chords[0]
+    minor = first.root == an.key and first.kind in (4, 6)
+    tonic = (an.key + 3) % 12 if minor else an.key  # relative major
+    sharps = {0: 0, 7: 1, 2: 2, 9: 3, 4: 4, 11: 5, 6: 6, 1: -5, 8: -4, 3: -3, 10: -2, 5: -1}[tonic]
+    return bytes([sharps & 0xFF, 1 if minor else 0])
+
+
+def build_song_midi(parts: list[tuple[str, Analysis, int, float, int | None]], title: str,
+                    fixed_tempo: float | None = None) -> bytes:
+    """parts: (label, analysis, repeats, tempo, genre or None) played one after another.
+
+    Each part gets its own tempo and time signature, so a part lasts exactly
+    as long as its loop and the file lines up with audio placed back to back.
+    With fixed_tempo the file has a single tempo and every note sits at its
+    absolute time instead, for DAWs that ignore or mishandle tempo maps.
+    """
     from .drums import events as drum_events, genre_name
 
+    with_drums = any(g is not None for *_, g in parts)
     meta, chords, bass, drums = _Track(), _Track(), _Track(), _Track()
-    drums.meta(0, 0x03, f"Drums ({genre_name(genre)}, stand-in)".encode() if genre is not None else b"Drums")
     meta.meta(0, 0x03, title.encode("ascii", "replace"))
-    us = round(60_000_000 / tempo)
-    meta.meta(0, 0x51, us.to_bytes(3, "big"))
     chords.meta(0, 0x03, b"Chords")
     chords.add(0, bytes([0xC0, 4]), order=0)  # electric piano
     bass.meta(0, 0x03, b"Bass")
     bass.add(0, bytes([0xC1, 33]), order=0)  # finger bass
+    genres = sorted({genre_name(g) for *_, g in parts if g is not None})
+    drums.meta(0, 0x03, f"Drums ({', '.join(genres)}, stand-in)".encode("ascii", "replace"))
 
     tick = 0
-    last_ts = None
-    for label, an, repeats in segments:
+    seconds = 0.0
+    last_ts = last_us = last_key = None
+    if fixed_tempo:
+        meta.meta(0, 0x51, round(60_000_000 / fixed_tempo).to_bytes(3, "big"))
+    for label, an, repeats, tempo, genre in parts:
+        if fixed_tempo:
+            # beats of this part -> ticks at the fixed tempo, from absolute time
+            scale = fixed_tempo / tempo
+        else:
+            us = round(60_000_000 / tempo)
+            if us != last_us:
+                meta.meta(tick, 0x51, us.to_bytes(3, "big"))
+                last_us = us
+            scale = 1.0
+        here = round(seconds * fixed_tempo / 60 * PPQ) if fixed_tempo else tick
         ts = (an.beats_per_bar, 4)
-        if ts != last_ts:
-            meta.meta(tick, 0x58, bytes([ts[0], 2, 24, 8]))
+        if ts != last_ts and not fixed_tempo:
+            meta.meta(here, 0x58, bytes([ts[0], 2, 24, 8]))
             last_ts = ts
-        meta.meta(tick, 0x07, label.encode("ascii", "replace"))
-        if an.key is not None:
-            first = an.chords[0]
-            minor = first.root == an.key and first.kind in (4, 6)
-            tonic = (an.key + 3) % 12 if minor else an.key  # relative major
-            sharps = {0: 0, 7: 1, 2: 2, 9: 3, 4: 4, 11: 5, 6: 6, 1: -5, 8: -4, 3: -3, 10: -2, 5: -1}[tonic]
-            meta.meta(tick, 0x59, bytes([sharps & 0xFF, 1 if minor else 0]))
+        key = _key_signature(an)
+        if key is not None and key != last_key:
+            meta.meta(here, 0x59, key)
+            last_key = key
+        meta.meta(here, 0x07, label.encode("ascii", "replace"))
         for _ in range(repeats):
+            if fixed_tempo:
+                base = round(seconds * fixed_tempo / 60 * PPQ)
+            else:
+                base = tick
+            at = lambda beat: base + round(beat * PPQ * scale)  # noqa: E731
             spans = an.chords + [None]
             for c, nxt in zip(an.chords, spans[1:]):
-                start = tick + c.beat * PPQ
-                end = tick + (nxt.beat if nxt else an.beats) * PPQ
+                start, end = at(c.beat), at(nxt.beat if nxt else an.beats)
                 meta.meta(start, 0x06, c.name.encode("ascii", "replace"))
                 for k in _chord_keys(c.root, c.intervals):
                     chords.note(start, end - start - 10, 0, k, 80)
-                for b in range(start, end, PPQ):
-                    bass.note(b, min(PPQ, end - b) - 30, 1, _bass_key(c.root), 96)
+                for b in range(c.beat, nxt.beat if nxt else an.beats):
+                    s0, s1 = at(b), at(b + 1)
+                    bass.note(s0, max(10, s1 - s0 - 30), 1, _bass_key(c.root), 96)
             if genre is not None:
                 for beat, note, vel, length in drum_events(genre, an.bars, an.beats_per_bar):
-                    t = tick + round(beat * PPQ)
-                    drums.note(t, max(10, round(length * PPQ) - 10), 9, note, vel)
+                    t = at(beat)
+                    drums.note(t, max(10, round(length * PPQ * scale) - 10), 9, note, vel)
             tick += an.beats * PPQ
-    tracks = [meta.chunk(), chords.chunk(), bass.chunk()] + ([drums.chunk()] if genre is not None else [])
+            seconds += an.beats * 60.0 / tempo
+    tracks = [meta.chunk(), chords.chunk(), bass.chunk()] + ([drums.chunk()] if with_drums else [])
     header = b"MThd" + (6).to_bytes(4, "big") + (1).to_bytes(2, "big") + \
         len(tracks).to_bytes(2, "big") + PPQ.to_bytes(2, "big")
     return header + b"".join(tracks)
 
 
 def part_midi(part: Part, title: str, section: int | None = None, repeats: int = 1,
-              drums: bool = True) -> tuple[bytes, dict]:
-    an = analyse(part, section)
+              drums: bool = True, edits: list | None = None) -> tuple[bytes, dict]:
+    from .analysis import apply_edits
+
+    an = apply_edits(analyse(part, section), edits)
     tempo = an.tempo_for(part_seconds(part))
     genre = part.band()["genre"] if drums else None
     data = build_midi([(f"Part {part.number}", an, repeats)], tempo, title, genre)

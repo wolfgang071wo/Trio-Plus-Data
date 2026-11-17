@@ -27,6 +27,7 @@ trio extract SONG.tlsd --tracks layer         # only the last overdub layer
 
 trio build -o New.tlsd 1=verse.tlsd:2 2=chorus.tlsd:1   # DST=FILE:SRC
 trio rename SONG.tlsd "Riff in A" -o Riff.tlsd
+trio daw SONG.tlsd --repeat 2             # song package for Ardour, Reaper ...: Gitarre.wav + Song.mid
 trio midi SONG.tlsd -o midi/              # chords + bass the pedal learned, one .mid per part
 trio midi SONG.tlsd -o midi/ --half       # use the half-tempo reading
 trio import-wav SONG.tlsd 2 pad.wav -o New.tlsd              # WAV becomes the recording of part 2
@@ -90,6 +91,22 @@ the same notes with a small built-in synthesizer ("Akkorde anhören"), alone
 or sample-aligned with the recording ("Mit Aufnahme"), highlighting the
 current chord. Drums are generated inside the pedal and are
 not in the file.
+
+### Song package for a DAW
+
+`trio daw` (app: "Für DAW exportieren") writes a folder with `Gitarre.wav`
+(the track the pedal plays, all parts back to back, optionally repeated),
+`Song.mid` (chords, bass, stand-in drums, with a tempo and time-signature
+change per part) and `Song (festes Tempo).mid` (the same notes at a fixed
+120 BPM, every note at its absolute time, for DAWs that cannot import tempo
+maps). Everything starts at the beginning and stays in sync. `LIESMICH.txt`
+explains the import into Ardour ("Use MIDI Tempo Map") and other DAWs.
+
+### Editing chords
+
+In the app every recognised chord can be clicked and changed (root and
+type). Changes are remembered per song and part in the browser and are used
+for preview, MIDI and the DAW package; the song file itself stays unchanged.
 
 ### WAV into a part
 

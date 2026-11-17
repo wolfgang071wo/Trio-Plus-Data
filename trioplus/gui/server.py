@@ -145,7 +145,7 @@ def _harmony(an, seconds: float, genre: int | None = None) -> dict:
     segs = []
     for i, c in enumerate(an.chords):
         end = an.chords[i + 1].beat if i + 1 < len(an.chords) else an.beats
-        segs.append({"beat": c.beat, "end": end, "name": c.name,
+        segs.append({"beat": c.beat, "end": end, "name": c.name, "root": c.root, "kind": c.kind,
                      "keys": _chord_keys(c.root, c.intervals), "bass": _bass_key(c.root)})
     return {"chords": [c.name for c in an.chords], "key": an.key_name,
             "tempo": round(an.tempo_for(seconds), 3), "bars": an.bars, "beats": an.beats,
@@ -334,7 +334,7 @@ class Library:
         return out
 
     def export(self, song_id: str, what: str, part: int | None = None, track: str | None = None,
-               half: bool = False) -> list[str]:
+               half: bool = False, edits: dict | None = None, repeats: int = 1) -> list[str]:
         song = self.song(song_id)
         info = self.info(song_id)
         prefix = f"{info['number']:02d} " if info.get("number") else ""
@@ -362,8 +362,16 @@ class Library:
             for p in ([song.part(part)] if part else song.parts):
                 if not p.trained:
                     continue
+                pe = (edits or {}).get(str(p.number))
                 try:
-                    data, _ = part_midi(p, f"{info['name']} Part {p.number}", 2 if half else None, drums=True)
+                    try:
+                        data, _ = part_midi(p, f"{info['name']} Part {p.number}", 2 if half else None,
+                                            drums=True, edits=pe)
+                    except TlsdError:
+                        if not pe:
+                            raise
+                        # edits refer to the normal reading; the half-tempo one may differ
+                        data, _ = part_midi(p, f"{info['name']} Part {p.number}", 2 if half else None, drums=True)
                 except TlsdError:
                     continue
                 out = self._out(f"{base} - Part {p.number}.mid")
@@ -371,6 +379,13 @@ class Library:
                 written.append(str(out))
             if not written:
                 raise TlsdError("Keine Akkorde gefunden")
+        elif what == "daw":
+            from .. import __version__ as ver
+            from ..daw import song_package
+            folder = self._out(f"{base} - DAW")
+            song_package(song, folder, info["name"], repeats=max(1, min(16, int(repeats))),
+                         edits=edits, version=ver)
+            written.append(str(folder))
         else:
             raise TlsdError("unbekanntes Exportformat")
         return written
@@ -491,7 +506,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"state": self.lib.state()})
             if url.path == "/api/export":
                 files = self.lib.export(body["song"], body["what"], body.get("part"), body.get("track"),
-                                        bool(body.get("half")))
+                                        bool(body.get("half")), body.get("edits"), int(body.get("repeats", 1)))
                 return self._json({"files": files})
             if url.path == "/api/build":
                 out = self.lib.build(body.get("name", "").strip() or "Neuer Song", body.get("parts", []))

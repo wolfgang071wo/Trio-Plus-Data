@@ -136,3 +136,22 @@ def part_seconds(part: Part) -> float:
     """Loop length: the main track, or the declared region if nothing is recorded."""
     main = part.tracks()["main"]
     return (len(main) if main else len(part.region) // 2) / 2 / SAMPLE_RATE
+
+
+def apply_edits(an: Analysis, edits: list | None) -> Analysis:
+    """Replace chords by index: edits = [{"i": 2, "root": 9, "kind": 4}, ...].
+
+    Indices refer to the (smoothed) chord list of the analysis. Root is a
+    pitch class 0..11, kind a chord-type code from KINDS.
+    """
+    if not edits:
+        return an
+    chords = list(an.chords)
+    for e in edits:
+        i, root, kind = int(e["i"]), int(e["root"]), int(e["kind"])
+        if not 0 <= i < len(chords):
+            raise TlsdError(f"Akkord {i + 1} gibt es in diesem Part nicht")
+        if not 0 <= root < 12 or kind not in KINDS:
+            raise TlsdError("ungültiger Akkord")
+        chords[i] = Chord(chords[i].beat, root, kind)
+    return Analysis(an.section, an.chosen, an.bars, an.beats_per_bar, an.pedal_tempo, chords, an.key)

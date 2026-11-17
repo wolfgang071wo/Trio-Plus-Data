@@ -80,6 +80,14 @@ main{overflow:auto;padding:1.4rem 1.8rem 3rem}
 .chords .seq{font:600 1.15rem var(--cond);letter-spacing:.01em;display:flex;flex-wrap:wrap;gap:.2rem .55rem}
 .chords .seq span{border-radius:4px;padding:0 .15rem;transition:background .08s}
 .chords .seq span.on{background:var(--led-green);color:var(--panel)}
+.chords .seq span{cursor:pointer}
+.chords .seq span:hover{outline:1px solid var(--line)}
+.chords .seq span.edited{text-decoration:underline;text-decoration-color:var(--led-amber);text-decoration-thickness:3px;text-underline-offset:4px}
+.chordedit:empty{display:none}
+.chordedit{flex-basis:100%;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;background:#fff;border:1px solid var(--line);border-radius:8px;padding:.5rem .7rem}
+.chordedit select{width:auto}
+.chordedit strong{font:600 1.1rem var(--cond)}
+.dawrow select{width:auto}
 .chords button{padding:.25rem .55rem;font-size:.85rem}
 .chords .drumbox{display:flex;align-items:center;gap:.3rem;font-size:.9rem;color:var(--muted);cursor:pointer}
 .builder{margin-top:2rem;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:1rem 1.2rem}
@@ -232,8 +240,16 @@ function renderSong() {
     el("div", {}, el("h1", {}, s.name), el("p", {}, `${songLabel(s)} auf ${src ? src.name : ""}`)),
     s.recorded ? el("div", {class:"row"},
       el("button", {onclick: run(() => doExport({song:s.id, what:"wav"}))}, "Alle Spuren als WAV speichern"),
-      el("button", {onclick: run(() => doExport({song:s.id, what:"midi"})),
-        title:"Akkorde und Bass-Grundtöne aller Parts als MIDI-Dateien"}, "Akkorde als MIDI"),
+      el("button", {onclick: run(() => doExport({song:s.id, what:"midi", edits: editsFor(s)})),
+        title:"Akkorde, Bass und Drums aller Parts als MIDI-Dateien"}, "Akkorde als MIDI"),
+      el("span", {class:"row dawrow"},
+        el("select", {id:"dawRepeats", "aria-label":"Wie oft jeder Part im DAW-Paket gespielt wird"},
+          [1, 2, 4].map(n => el("option", {value:n}, `Parts ${n}×`))),
+        el("button", {onclick: run(async () => { const r = await api("/api/export", {song:s.id, what:"daw",
+            edits: editsFor(s), repeats: +$("#dawRepeats").value});
+            status(`Song-Paket gespeichert: ${r.files[0]}`, {reveal:true}); }),
+          title:"Ordner mit Gitarre.wav und Song.mid (Akkorde, Bass, Drums), synchron, für Ardour, Reaper und andere DAWs"},
+          "Für DAW exportieren")),
       el("button", {class:"primary", onclick: run(() => doExport({song:s.id, what:"tlsd"}))}, "Als .tlsd speichern")) : null);
   const face = el("div", {class:"face"});
   if (!s.parts.some(p => p.trained)) face.append(el("p", {class:"note"}, "In diesem Song ist nichts aufgenommen."));
@@ -284,17 +300,22 @@ function renderSong() {
         body.append(el("div", {class:"chords"},
           el("span", {class:"meta"}, `${p.harmony.bars} Takte ${p.harmony.time}, ${p.harmony.tempo.toFixed(0)} BPM` +
             (p.harmony.key ? `, Tonart ${p.harmony.key}` : "") + (p.harmony.genre ? `, ${p.harmony.genre}` : "")),
-          el("span", {class:"seq", "data-seq":pid}, p.harmony.segments.map((g, i) => el("span", {"data-i":i}, g.name))),
+          el("span", {class:"seq", "data-seq":pid}, effSegments(s, p, p.harmony).map((g, i) =>
+            el("span", {"data-i":i, class: g.edited ? "edited" : "", role:"button", tabindex:"0",
+              title: g.edited ? `Geändert, erkannt war ${g.orig}. Klicken zum Bearbeiten` : "Klicken zum Ändern",
+              onclick: () => openChordEditor(s, p, i), onkeydown: ev => { if (ev.key === "Enter") openChordEditor(s, p, i); }},
+              g.name))),
           el("label", {class:"drumbox", title:"Ersatz-Schlagzeug passend zum Genre (nicht das Original des Pedals)"},
             el("input", {type:"checkbox", "data-drums":pid, checked:true}), "Drums"),
           el("button", {"data-synth":`${pid}|0`, onclick: run(() => synthToggle(s.id, p, false, false)),
             title:"Akkorde und Bass so anhören, wie sie in der MIDI-Datei stehen"}, "Akkorde anhören"),
           hasAudio ? el("button", {"data-synth":`${pid}|1`, onclick: run(() => synthToggle(s.id, p, true, false)),
             title:"Akkorde und Bass zusammen mit der Aufnahme"}, "Mit Aufnahme") : null,
-          el("button", {onclick: run(() => doExport({song:s.id, what:"midi", part:p.part})),
+          el("button", {onclick: run(() => doExport({song:s.id, what:"midi", part:p.part, edits: editsFor(s)})),
             title:"Akkorde und Bass-Grundtöne dieses Parts als MIDI-Datei"}, "MIDI"),
-          el("button", {onclick: run(() => doExport({song:s.id, what:"midi", part:p.part, half:true})),
-            title:"Wie MIDI, aber mit der Lesart in halbem Tempo"}, "MIDI halbes Tempo")));
+          el("button", {onclick: run(() => doExport({song:s.id, what:"midi", part:p.part, half:true, edits: editsFor(s)})),
+            title:"Wie MIDI, aber mit der Lesart in halbem Tempo"}, "MIDI halbes Tempo")),
+          el("div", {class:"chordedit", "data-editor":pid}));
       }
     }
     face.append(el("div", {class:"part"}, el("div", {class:"led " + st, "aria-hidden":"true"}, p.part), body));
@@ -428,6 +449,63 @@ function updateSynthButtons() {
   }
 }
 
+
+// --- chord editing (applies to preview, MIDI and DAW export; the song file stays unchanged)
+const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const KIND_DEFS = {0:["", [0,4,7]], 2:["maj7",[0,4,7,11]], 4:["m",[0,3,7]], 6:["m7",[0,3,7,10]],
+                   8:["dim",[0,3,6]], 10:["7",[0,4,7,10]], 14:["sus4",[0,5,7]], 15:["5",[0,7,12]]};
+const KIND_CHOICES = [[0,"Dur"],[4,"Moll"],[10,"7"],[2,"maj7"],[6,"m7"],[14,"sus4"],[15,"5 (Power)"],[8,"vermindert"]];
+let chordEdits = {};
+try { chordEdits = JSON.parse(localStorage.getItem("trioChordEdits") || "{}"); } catch (e) { chordEdits = {}; }
+const saveEdits = () => { try { localStorage.setItem("trioChordEdits", JSON.stringify(chordEdits)); } catch (e) {} };
+function editKey(song, partNo) {
+  const src = state.sources.find(x => x.id === song.source);
+  return `${src ? src.path : song.source}|${song.number || song.file || song.name}|${partNo}`;
+}
+const chordKeys = (root, iv) => { let b = 48 + root; if (b > 54) b -= 12; return iv.map(i => b + i); };
+const bassKey = root => 28 + ((root - 4) % 12 + 12) % 12;
+function effSegments(song, p, h) {
+  if (!song || h !== p.harmony) return h.segments;
+  const ed = chordEdits[editKey(song, p.part)] || {};
+  return h.segments.map((g, i) => {
+    const e = ed[i];
+    if (!e) return g;
+    const def = KIND_DEFS[e.kind] || KIND_DEFS[0];
+    return {...g, root:e.root, kind:e.kind, name: NOTE_NAMES[e.root] + def[0], keys: chordKeys(e.root, def[1]),
+            bass: bassKey(e.root), edited:true, orig:g.name};
+  });
+}
+function editsFor(song) {
+  const out = {};
+  for (const p of song.parts) {
+    const ed = chordEdits[editKey(song, p.part)];
+    if (ed && Object.keys(ed).length)
+      out[p.part] = Object.entries(ed).map(([i, e]) => ({i:+i, root:e.root, kind:e.kind}));
+  }
+  return out;
+}
+function openChordEditor(song, p, i) {
+  const box = document.querySelector(`[data-editor="${song.id}|${p.part}"]`);
+  if (!box) return;
+  const seg = effSegments(song, p, p.harmony)[i], orig = p.harmony.segments[i];
+  const rootSel = el("select", {"aria-label":"Grundton"}, NOTE_NAMES.map((n, r) => el("option", {value:r, selected: r === seg.root}, n)));
+  const kindSel = el("select", {"aria-label":"Akkordart"}, KIND_CHOICES.map(([k, l]) =>
+    el("option", {value:k, selected: k === (KIND_DEFS[seg.kind] ? seg.kind : 0)}, l)));
+  const key = editKey(song, p.part);
+  box.replaceChildren(
+    el("strong", {}, `Akkord ${i + 1}`), el("span", {class:"note"}, `ab Schlag ${seg.beat + 1}, erkannt: ${orig.name}`),
+    rootSel, kindSel,
+    el("button", {class:"primary", onclick: () => {
+      (chordEdits[key] = chordEdits[key] || {})[i] = {root:+rootSel.value, kind:+kindSel.value};
+      saveEdits(); renderSong(); }}, "Übernehmen"),
+    chordEdits[key] && chordEdits[key][i] ? el("button", {onclick: () => {
+      delete chordEdits[key][i]; saveEdits(); renderSong(); }}, "Wie erkannt") : null,
+    chordEdits[key] && Object.keys(chordEdits[key]).length ? el("button", {onclick: () => {
+      delete chordEdits[key]; saveEdits(); renderSong(); }}, "Alle Änderungen in diesem Part verwerfen") : null,
+    el("button", {onclick: () => box.replaceChildren()}, "Schließen"));
+  rootSel.focus();
+}
+
 let noiseBuf = null;
 function noise(ctx) {
   if (noiseBuf && noiseBuf.sampleRate === ctx.sampleRate) return noiseBuf;
@@ -503,7 +581,8 @@ async function synthToggle(songId, p, withAudio, half) {
     const drumBus = ctx.createGain(); drumBus.gain.value = withAudio ? 0.6 : 0.85; drumBus.connect(master);
     for (const [beat, note, vel] of h.drums) drum(ctx, drumBus, note, t0 + beat * spb, vel / 127);
   }
-  for (const g of h.segments) {
+  const song = state.songs.find(x => x.id === songId);
+  for (const g of effSegments(song, p, h)) {
     const s0 = t0 + g.beat * spb, s1 = t0 + g.end * spb;
     for (const k of g.keys) voice(mtof(k), s0, s1 - s0, "triangle", chordBus, 0.09, 0.55);
     for (let b = g.beat; b < g.end; b++) voice(mtof(g.bass), t0 + b * spb, spb * 0.85, "sawtooth", bassBus, 0.22, 0.6);
