@@ -41,7 +41,7 @@ Layout inside a section (u32, little-endian):
 | +0 | 1 in one section, 0 in the others: probably the chosen interpretation |
 | +4 | number of bars |
 | +8 | beats per bar (4 or 3) |
-| +12 | small value 0..11, per song; perhaps a key estimate |
+| +12 | key estimate, pitch class (confirmed: parts in A, D and F read 9, 2, 5) |
 | +28.. | beat grid (0, 4, 8, ... or 0, 3, 6, ...) |
 | +408.. | float32 tempo estimates, one per bar |
 | +796.. | 128 x segment start, in beats, ascending; entries after the last valid one are stale |
@@ -78,7 +78,10 @@ metronome. Values are the section+1820 code of the first segment.
 A progression test (A - D - E - A, one bar each, about 94 BPM) confirmed the
 segment positions: changes at beats 4, 8 and 12, i.e. positions count quarter
 notes from the start of the part. Its first D carried code 20 (also seen on
-E in another song); 20 is still unidentified.
+E in another song), but a part with only an open D reads plain major (0), so
+20 is probably a transitional or slash/added-note reading. A barre F reads
+major (0, with a code 1 for the first beat); the thumb-over F that read
+maj7 (2) most likely let the open high E ring.
 
 Codes seem to come in pairs (0 major, 2 maj7, 4 minor, 6 m7, 8 dim?,
 10 7?, 14 sus4, 15 power chord); 1 and 20 have been seen but not identified.
