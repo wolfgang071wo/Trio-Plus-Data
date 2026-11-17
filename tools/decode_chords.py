@@ -19,6 +19,8 @@ NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 SECTION0 = 516
 SECTION_SIZE = 3736
 NAMES = ["4/4", "3/4", "4/4 half tempo", "3/4 half tempo"]
+# chord-type codes, see docs/block_a.md ("?" = probable)
+KINDS = {0: "", 2: "maj7", 4: "m", 6: "m7", 8: "dim?", 10: "7?", 14: "sus4", 15: "5"}
 
 
 def u32(b, o):
@@ -42,7 +44,8 @@ def section(block, s):
         if pos > bars * beats:
             break
         root, kind = u32(block, base + 1308 + 4 * i), u32(block, base + 1820 + 4 * i)
-        segs.append((pos, NOTES[root] if root < 12 else f"?{root}", kind))
+        name = (NOTES[root] if root < 12 else f"?{root}") + KINDS.get(kind, f"({kind})")
+        segs.append((pos, name, kind))
         last = pos
     return {"chosen": u32(block, base) == 1, "bars": bars, "beats": beats,
             "tempo": sum(tempos) / len(tempos) if tempos else 0.0, "segments": segs}
@@ -66,8 +69,8 @@ def main():
                     continue
                 mark = "*" if sec["chosen"] else " "
                 print(f"   {mark} {NAMES[s]:15s} {sec['bars']:3d} bars  ~{sec['tempo']:6.1f} BPM")
-                line = "  ".join(f"{pos}:{root}({kind})" for pos, root, kind in sec["segments"])
-                print(f"       beat:root(type)  {line}")
+                line = "  ".join(f"{pos}:{name}" for pos, name, _ in sec["segments"])
+                print(f"       beat:chord  {line}")
 
 
 if __name__ == "__main__":

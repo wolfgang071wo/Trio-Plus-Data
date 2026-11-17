@@ -57,11 +57,31 @@ Evidence:
 * In `tlsd_sample_data/01.tlsd` the roots form a plausible E-major song
   (E, B, A, C).
 
+## Chord-type codes
+
+From a test card (2026-11-17): one chord per part, Rock, played without a
+metronome. Values are the section+1820 code of the first segment.
+
+| Played | Code | Confidence |
+|---|---|---|
+| A, C, D, E, G (major) | 0 | high, 6 parts |
+| Am | 4 | high |
+| A5 power chord | 15 | high |
+| Am7 | 6 | high |
+| Amaj7 | 2 | high; also F played as open xx3210 (= Fmaj7) |
+| Asus4 | 14 | high |
+| Asus2 | 0 (one later segment 14) | read as major |
+| Aaug | 0 | read as major |
+| Adim | mix of 0, 8, 4 | 8 is probably dim |
+| A7 | 15, then E 0 | not recognised; 10 is probably dominant 7 (E10 in blues parts) |
+
+Codes seem to come in pairs (0 major, 2 maj7, 4 minor, 6 m7, 8 dim?,
+10 7?, 14 sus4, 15 power chord); 1 and 20 have been seen but not identified.
+On the same test card section 0 (4/4) was always marked chosen; its tempo is
+sometimes doubled.
+
 ## Open questions
 
-* The chord-type codes. Needed: test parts with one known chord each
-  (A major, A minor, A5 power chord, A7, Am7, Asus4), all with the same
-  length and settings.
 * How many segments are valid (no count field identified yet; positions
   stop ascending after the last one).
 * The meaning of +12 and of the integer table at 15544..16240.
