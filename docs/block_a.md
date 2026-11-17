@@ -75,6 +75,11 @@ metronome. Values are the section+1820 code of the first segment.
 | Adim | mix of 0, 8, 4 | 8 is probably dim |
 | A7 | 15, then E 0 | not recognised; 10 is probably dominant 7 (E10 in blues parts) |
 
+A progression test (A - D - E - A, one bar each, about 94 BPM) confirmed the
+segment positions: changes at beats 4, 8 and 12, i.e. positions count quarter
+notes from the start of the part. Its first D carried code 20 (also seen on
+E in another song); 20 is still unidentified.
+
 Codes seem to come in pairs (0 major, 2 maj7, 4 minor, 6 m7, 8 dim?,
 10 7?, 14 sus4, 15 power chord); 1 and 20 have been seen but not identified.
 On the same test card section 0 (4/4) was always marked chosen; its tempo is
