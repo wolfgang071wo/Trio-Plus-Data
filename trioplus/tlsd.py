@@ -62,6 +62,32 @@ OFF_RECORDED = 16_256  # block A
 _TEMPLATE = Path(__file__).with_name("data") / "template_empty_song.tlsd"
 
 
+def encode_name(value: str) -> bytes:
+    """The 128-byte name field: printable ASCII, zero padded."""
+    try:
+        raw = value.encode("ascii")
+    except UnicodeEncodeError:
+        raise TlsdError("song name must be printable ASCII") from None
+    if not raw.strip():
+        raise TlsdError("song name must not be empty")
+    if len(raw) >= NAME_FIELD:
+        raise TlsdError(f"song name longer than {NAME_FIELD - 1} characters")
+    if any(b < 0x20 or b > 0x7E for b in raw):
+        raise TlsdError("song name must be printable ASCII")
+    return raw.ljust(NAME_FIELD, b"\x00")
+
+
+def rename_file(path, name: str) -> None:
+    """Change the name inside a .tlsd file in place (only the name field is written)."""
+    raw = encode_name(name)
+    with open(path, "r+b") as f:
+        f.seek(OFF_MARKER)
+        if int.from_bytes(f.read(4), "little") != MARKER:
+            raise TlsdError(f"{path} is not a TRIO+ song file")
+        f.seek(OFF_NAME)
+        f.write(raw)
+
+
 class TlsdError(ValueError):
     """The data is not a .tlsd file this library understands."""
 
@@ -231,15 +257,7 @@ class Song:
 
     @name.setter
     def name(self, value: str) -> None:
-        try:
-            raw = value.encode("ascii")
-        except UnicodeEncodeError:
-            raise TlsdError("song name must be printable ASCII") from None
-        if len(raw) >= NAME_FIELD:
-            raise TlsdError(f"song name longer than {NAME_FIELD - 1} characters")
-        if any(b < 0x20 or b > 0x7E for b in raw):
-            raise TlsdError("song name must be printable ASCII")
-        self.header[OFF_NAME:OFF_NAME + NAME_FIELD] = raw.ljust(NAME_FIELD, b"\x00")
+        self.header[OFF_NAME:OFF_NAME + NAME_FIELD] = encode_name(value)
 
     def part(self, number: int) -> Part:
         if not 1 <= number <= NUM_PARTS:

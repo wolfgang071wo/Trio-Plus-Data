@@ -99,3 +99,34 @@ def test_english(server, tmp_path):
     folder = Path(call("/api/export?lang=en", {"song": sid, "what": "daw"})["files"][0])
     assert sorted(p.name for p in folder.iterdir()) == ["Guitar.wav", "README.txt", "Song (fixed tempo).mid", "Song.mid"]
     assert "song package" in (folder / "README.txt").read_text(encoding="utf-8")
+
+
+def test_rename(server, tmp_path):
+    call, _ = server
+    f = tmp_path / "copy.tlsd"
+    f.write_bytes(SONG_05.read_bytes())
+    call("/api/open", {"path": str(SONG_05)})
+    st = call("/api/open", {"path": str(f)})["state"]
+    sid = [x for x in st["songs"] if x["file"] == "copy.tlsd"][0]["id"]
+    r = call("/api/rename", {"song": sid, "name": "Mein Blues"})
+    assert Song.load(f).name == "Mein Blues"
+    assert [s["name"] for s in r["state"]["sources"]] == ["05.tlsd", "copy.tlsd"]  # order kept
+    with pytest.raises(urllib.error.HTTPError) as e:
+        call("/api/rename", {"song": f"{r['opened'][0]}:0", "name": "Gr\u00fc\u00dfe"})
+    assert "Umlaute" in json.loads(e.value.read())["error"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a sparse 3 GB file")
+def test_rename_on_card(server, tmp_path):
+    from test_tlsd import make_card
+    from trioplus.card import Card
+    call, _ = server
+    path, _ = make_card(tmp_path)
+    first = call("/api/open", {"path": str(path)})["state"]["sources"][0]["changes"]
+    assert first["first"]
+    r = call("/api/rename", {"song": "s1:2", "name": "Blues in A"})
+    src = r["state"]["sources"][0]
+    assert src["changes"]["first"]  # not reported as "nothing saved"
+    assert [s["name"] for s in r["state"]["songs"]][:2] == ["Song 01", "Blues in A"]
+    with Card(path) as c:
+        assert c.song_names()[1] == "Blues in A"

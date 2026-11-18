@@ -31,7 +31,7 @@ import mmap
 from dataclasses import dataclass
 from pathlib import Path
 
-from .tlsd import BLOCK_A_SIZE, BLOCK_B_SIZE, NUM_PARTS, Part, Song, TlsdError
+from .tlsd import BLOCK_A_SIZE, BLOCK_B_SIZE, NUM_PARTS, Part, Song, TlsdError, encode_name
 
 MAGIC = b"TLSD"
 SONG_TABLE = 0x1425800
@@ -147,3 +147,24 @@ class Card:
         except TlsdError:
             song.name = f"Song {number:02d}"
         return song
+
+
+def rename_song(path, number: int, name: str) -> None:
+    """Change the name of song 1..12 in TRIOPLUS.DAT in place.
+
+    Only the 128-byte name field of that song's record is written; the pedal
+    itself does not show names, they are what TRIO Manager and TrioTool display.
+    Close any Card on the file first.
+    """
+    if not 1 <= number <= NUM_SONGS:
+        raise TlsdError(f"song must be 1..{NUM_SONGS}")
+    raw = encode_name(name)
+    rec = SONG_TABLE + (number - 1) * SONG_STRIDE
+    with open(path, "r+b") as f:
+        if f.read(4) != b"TLSD":
+            raise TlsdError(f"{path} is not a TRIO+ card file")
+        f.seek(rec)
+        if int.from_bytes(f.read(4), "little") != 0x0303:
+            raise TlsdError(f"song {number} has no entry on the card yet")
+        f.seek(rec + 4)
+        f.write(raw)

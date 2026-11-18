@@ -28,7 +28,10 @@ trio --help               # the command line
 ## What it does
 
 * **Read the card directly.** All 12 songs from `TRIOPLUS.DAT`, no TRIO
-  Manager needed. The card is only read, never written.
+  Manager needed. The card is only read; the one exception is renaming.
+* **Rename songs** on the card or in a `.tlsd` file. Only the name field is
+  written (the pedal has no display; the names are what TRIO Manager and
+  TrioTool show).
 * **See what the pedal saved.** When a card is opened again, TrioTool lists
   the parts the pedal stored since last time, or warns that it stored
   nothing (useful with a worn card slot).

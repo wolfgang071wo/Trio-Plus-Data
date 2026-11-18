@@ -167,8 +167,8 @@ def test_cli_scan_nothing_found(tmp_path):
     assert main(["scan", str(empty)]) == 1
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="needs a sparse 3 GB file")
-def test_card_container(tmp_path):
+def make_card(tmp_path):
+    """A sparse TRIOPLUS.DAT with Song 05 as song 2."""
     from trioplus import card as C
 
     src = Song.load(SONG_05)
@@ -191,7 +191,14 @@ def test_card_container(tmp_path):
             if p.trained:
                 f.seek(base + j * C.AUDIO_SLOT + C.AUDIO_LEAD)
                 f.write(p.region)
+    return path, src
 
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a sparse 3 GB file")
+def test_card_container(tmp_path):
+    from trioplus import card as C
+
+    path, src = make_card(tmp_path)
     out = tmp_path / "out"
     assert main(["card", "--extract", str(out), str(path)]) == 0
     got = Song.load(out / "02 Song 02.tlsd")
@@ -203,6 +210,23 @@ def test_card_container(tmp_path):
     with C.Card(path) as card:
         assert card.song_names()[2] == "Song 03"
         assert [s.index for s in card.slots() if s.present] == [5, 6, 7, 8]
+    C.rename_song(path, 2, "Blues in A")
+    with C.Card(path) as card:
+        assert card.song_names()[:3] == ["Song 01", "Blues in A", "Song 03"]
+        assert [s.index for s in card.slots() if s.present] == [5, 6, 7, 8]
+    with pytest.raises(TlsdError):
+        C.rename_song(path, 2, "Bl\u00fces")
+
+
+def test_rename_file_in_place(tmp_path):
+    from trioplus.tlsd import rename_file
+    f = tmp_path / "a.tlsd"
+    f.write_bytes(SONG_05.read_bytes())
+    rename_file(f, "Neuer Name")
+    a, b = Song.load(SONG_05), Song.load(f)
+    assert b.name == "Neuer Name"
+    a.name = "Neuer Name"
+    assert a.to_bytes() == b.to_bytes()
 
 
 def _write_wav(path, seconds, rate=44100, channels=1, width=2, freq=220.0):

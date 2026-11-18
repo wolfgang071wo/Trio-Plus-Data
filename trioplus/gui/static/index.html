@@ -59,6 +59,9 @@ main{overflow:auto;padding:1.4rem 1.8rem 3rem}
 .songhead{display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-end;justify-content:space-between;margin-bottom:1.2rem}
 .songhead h1{font:700 2.6rem/1 var(--cond);margin:0}
 .songhead p{margin:.25rem 0 0;color:var(--muted)}
+.titlerow{display:flex;flex-wrap:wrap;align-items:center;gap:.8rem}
+.titlerow button{padding:.25rem .6rem;font-size:.85rem}
+input.renamebox{font:700 2rem/1.1 var(--cond);width:min(32rem,70vw);padding:.15rem .4rem}
 .face{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.4rem 1rem}
 .part{display:grid;grid-template-columns:3.2rem 1fr;gap:1rem;padding:.9rem 0;border-bottom:1px solid var(--line)}
 .part:last-child{border-bottom:0}
@@ -225,8 +228,8 @@ function renderEmpty() {
     el("button", {type:"submit"}, T("Öffnen", "Open")));
   m.replaceChildren(el("div", {class:"empty-state"},
     el("h1", {}, T("Songs vom TRIO+ holen", "Get your songs off the TRIO+")),
-    el("p", {}, T("Öffne die TRIOPLUS.DAT von der SD-Karte, einen exportierten Song (.tlsd) oder einen Ordner mit Songs. Die Dateien werden nur gelesen.",
-      "Open TRIOPLUS.DAT from the SD card, an exported song (.tlsd) or a folder of songs. The files are only read, never changed.")),
+    el("p", {}, T("Öffne die TRIOPLUS.DAT von der SD-Karte, einen exportierten Song (.tlsd) oder einen Ordner mit Songs. Die Dateien werden nur gelesen; nur beim Umbenennen schreibt die App den neuen Namen hinein.",
+      "Open TRIOPLUS.DAT from the SD card, an exported song (.tlsd) or a folder of songs. The files are only read; only renaming writes the new name into them.")),
     cards.length ? el("div", {class:"row"}, cards.map(c => el("button", {class:"primary", onclick: run(() => openPath({path:c}))}, `${T("SD-Karte öffnen", "Open SD card")}: ${c}`))) : null,
     form));
 }
@@ -248,7 +251,11 @@ function renderSong() {
   const src = state.sources.find(x => x.id === s.source);
   const m = $("#main");
   const head = el("div", {class:"songhead"},
-    el("div", {}, el("h1", {}, s.name), el("p", {}, `${songLabel(s)} ${T("auf", "on")} ${src ? src.name : ""}`)),
+    el("div", {}, el("div", {class:"titlerow"}, el("h1", {}, s.name),
+        (s.recorded || s.parts.some(p => p.trained)) ? el("button", {onclick: () => startRename(s),
+          title:T("Neuen Namen direkt in die Karte bzw. die .tlsd-Datei schreiben", "Write a new name straight into the card or the .tlsd file")},
+          T("Umbenennen", "Rename")) : null),
+      el("p", {}, `${songLabel(s)} ${T("auf", "on")} ${src ? src.name : ""}`)),
     s.recorded ? el("div", {class:"row"},
       el("button", {onclick: run(() => doExport({song:s.id, what:"wav"}))}, T("Alle Spuren als WAV speichern", "Save all tracks as WAV")),
       el("button", {onclick: run(() => doExport({song:s.id, what:"midi", edits: editsFor(s)})),
@@ -340,6 +347,27 @@ function renderSong() {
   }
   m.replaceChildren(head, face, renderBuilder());
   drawWaves();
+}
+
+function startRename(s) {
+  const row = document.querySelector(".titlerow");
+  const input = el("input", {type:"text", value:s.name, maxlength:"60", class:"renamebox", "aria-label":T("Neuer Name", "New name")});
+  const save = run(async () => {
+    const n = input.value.trim();
+    if (n === s.name) return renderSong();
+    if (!/^[ -~]+$/.test(n)) throw new Error(T("Der Name darf nur einfache Zeichen ohne Umlaute enthalten.", "The name may only use plain characters without accents."));
+    const r = await api("/api/rename", {song:s.id, name:n});
+    state = r.state;
+    const num = s.id.split(":")[1];
+    current = `${r.opened[0]}:${num}`;
+    render();
+    status(T(`Umbenannt in „${n}“.`, `Renamed to "${n}".`));
+  });
+  input.addEventListener("keydown", e => { if (e.key === "Enter") save(); if (e.key === "Escape") renderSong(); });
+  row.replaceChildren(input,
+    el("button", {class:"primary", onclick: save}, T("Speichern", "Save")),
+    el("button", {onclick: () => renderSong()}, T("Abbrechen", "Cancel")));
+  input.focus(); input.select();
 }
 
 function partOptions() {

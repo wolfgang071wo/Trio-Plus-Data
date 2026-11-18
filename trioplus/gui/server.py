@@ -171,7 +171,7 @@ class Library:
 
     # sources ------------------------------------------------------------
 
-    def open(self, path: str) -> list[str]:
+    def open(self, path: str, keep_changes=None) -> list[str]:
         p = Path(path).expanduser()
         if not p.exists():
             raise TlsdError(f"{p} gibt es nicht")
@@ -193,10 +193,13 @@ class Library:
             if magic == b"TLSD":
                 from ..history import check
                 card = Card(p)
-                try:
-                    changes = check(card, self.history_dir)
-                except Exception:  # never block opening a card
-                    changes = None
+                if keep_changes is not None:  # re-opened after our own write, not a new visit
+                    changes = keep_changes or None
+                else:
+                    try:
+                        changes = check(card, self.history_dir)
+                    except Exception:  # never block opening a card
+                        changes = None
                 self.sources.append({"id": sid, "kind": "card", "path": str(p), "card": card, "changes": changes})
             else:
                 Song.load(p)  # validate
@@ -407,6 +410,45 @@ class Library:
         out.write_bytes(data)
         return str(out), info
 
+    def rename(self, song_id: str, name: str) -> list[str]:
+        """Rename a song in place: on the card (TRIOPLUS.DAT) or inside a .tlsd file."""
+        from ..card import rename_song
+        from ..tlsd import rename_file
+
+        name = name.strip()
+        if not name:
+            raise TlsdError("Der Name darf nicht leer sein")
+        if not re.fullmatch(r"[ -~]+", name):
+            raise TlsdError("Der Name darf nur einfache Zeichen ohne Umlaute enthalten")
+        if len(name) > 60:
+            raise TlsdError("Der Name darf höchstens 60 Zeichen lang sein")
+        with self.lock:
+            sid, num = song_id.split(":")
+            src = self._source(sid)
+            path = src["path"]
+            where = self.sources.index(src)
+            if src["kind"] == "card":
+                if not self.info(song_id).get("recorded") and not any(
+                        p.get("trained") for p in self.info(song_id)["parts"]):
+                    raise TlsdError("Ein leerer Song lässt sich nicht umbenennen")
+                changes = src.get("changes")
+                self.close(sid)  # release the memory map before writing
+                try:
+                    rename_song(path, int(num), name)
+                finally:
+                    opened = self.open(path, keep_changes=changes or {})
+            else:
+                self.close(sid)
+                try:
+                    rename_file(path, name)
+                finally:
+                    opened = self.open(path)
+            # keep the source where it was in the list
+            moved = [x for x in self.sources if x["id"] in opened]
+            self.sources = [x for x in self.sources if x["id"] not in opened]
+            self.sources[where:where] = moved
+            return opened
+
     def build(self, name: str, parts: list) -> str:
         song = Song.empty()
         for slot, spec in enumerate(parts[:NUM_PARTS], start=1):
@@ -517,6 +559,9 @@ class Handler(BaseHTTPRequestHandler):
                                         bool(body.get("half")), body.get("edits"), int(body.get("repeats", 1)),
                                         lang)
                 return self._json({"files": files})
+            if url.path == "/api/rename":
+                opened = self.lib.rename(body["song"], body.get("name", ""))
+                return self._json({"opened": opened, "state": self.lib.state()})
             if url.path == "/api/build":
                 out = self.lib.build(body.get("name", "").strip() or word("new_song", lang), body.get("parts", []))
                 self.lib.open(out)
