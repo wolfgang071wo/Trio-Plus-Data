@@ -7,7 +7,7 @@ TrioTool reads the `TRIOPLUS.DAT` on the pedal's microSD card (or songs
 exported with the TRIO Manager), shows every part with its recordings and
 the chords the pedal learned, and exports audio, MIDI and complete song
 packages. It runs as a small app in your browser, on Windows, macOS, Linux
-and a Raspberry Pi.
+and a Raspberry Pi, in English or German (switch at the top right).
 
 ![TrioTool showing a song with five parts, waveforms and detected chords](docs/screenshot.png)
 
@@ -39,7 +39,7 @@ trio --help               # the command line
 * **MIDI.** Chords, bass and stand-in drums for the part's genre, in the
   exact tempo of the loop. Preview it in the app, alone or together with
   the recording.
-* **DAW package.** One folder per song: `Gitarre.wav` with all parts back
+* **DAW package.** One folder per song: `Guitar.wav` with all parts back
   to back and `Song.mid` with a tempo change per part, ready for Ardour,
   Reaper, Ableton, Bitwig and others.
 * **Build songs.** Combine parts from different songs into a new song, or
@@ -65,7 +65,8 @@ How the song file and the card are organised is documented in
 TrioTool holt Songs vom DigiTech TRIO+: direkt von der SD-Karte, mit
 Wellenformen, erkannten Akkorden, WAV- und MIDI-Export und einem Paket für
 die DAW. Für Windows einfach `TrioTool.exe` aus den Releases laden und
-starten. Die Oberfläche ist deutsch.
+starten. Die Oberfläche gibt es auf Deutsch und Englisch (Umschalter oben
+rechts).
 
 ## Credits and licence
 

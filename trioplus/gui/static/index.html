@@ -102,6 +102,7 @@ select,input[type=text]{border:1px solid var(--line);background:#fff;border-radi
 #status.err{background:var(--led-red)}
 #status button{background:transparent;color:inherit;border-color:rgba(255,255,255,.4);padding:.2rem .6rem}
 .pathform{display:flex;gap:.5rem;margin-top:1rem}
+select.lang{width:auto;padding:.4rem .4rem}
 @media (max-width:820px){
   .shell{grid-template-columns:1fr;grid-template-rows:auto auto 1fr;height:auto}
   aside{border-right:0;border-bottom:1px solid var(--line);max-height:40vh}
@@ -116,11 +117,12 @@ select,input[type=text]{border:1px solid var(--line);background:#fff;border-radi
 <div class="shell">
   <header>
     <div class="brand">TRIO Tool <small id="ver"></small>
-      <small><a href="https://github.com/wolfgang071wo/TrioTool" target="_blank" rel="noopener">Projektseite</a></small></div>
+      <small><a id="projLink" href="https://github.com/wolfgang071wo/TrioTool" target="_blank" rel="noopener">Projektseite</a></small></div>
     <button id="openCard">Karte oder Song öffnen…</button>
     <button id="openFolder">Ordner öffnen…</button>
-    <div class="export">Speichern in <code id="exportDir" title=""></code>
+    <div class="export"><span id="saveIn">Speichern in</span> <code id="exportDir" title=""></code>
       <button id="changeDir">Ändern…</button><button id="reveal">Anzeigen</button></div>
+    <select id="lang" class="lang" aria-label="Sprache / Language"><option value="de">Deutsch</option><option value="en">English</option></select>
     <button id="quit">Beenden</button>
   </header>
   <aside id="sources" aria-label="Geöffnete Karten und Songs"></aside>
@@ -131,11 +133,15 @@ select,input[type=text]{border:1px solid var(--line);background:#fff;border-radi
 
 <script>
 const TOKEN = "__TOKEN__";
+let LANG = "de";
+try { LANG = localStorage.getItem("trioLang") || ((navigator.language || "de").toLowerCase().startsWith("de") ? "de" : "en"); } catch (e) {}
+if (LANG !== "en") LANG = "de";
+const T = (de, en) => LANG === "en" ? en : de;
 const GENRES = ["Blues","R&B","Rock","Alt-Rock","Metal","Pop","E-Pop","Hip-Hop","Country","Folk","Latin","Jazz"];
-const BASS = {0:"Bass aktiv",1:"Bass einfach",3:"Bass Riff"};
+const BASS = () => ({0:T("Bass aktiv","Bass active"),1:T("Bass einfach","Bass simple"),3:T("Bass Riff","Bass riff")});
 let state = {sources:[],songs:[]}, current = null, playing = null, cards = [];
 const builder = [null,null,null,null,null];
-let newName = "Neuer Song";
+let newName = null;
 
 const $ = s => document.querySelector(s);
 const el = (tag, attrs={}, ...kids) => {
@@ -148,13 +154,13 @@ const el = (tag, attrs={}, ...kids) => {
   return e;
 };
 const api = async (path, body) => {
-  const r = await fetch(path + (path.includes("?") ? "&" : "?") + "t=" + TOKEN, body === undefined ? {} :
-    {method:"POST", headers:{"Content-Type":"application/json","X-Token":TOKEN}, body:JSON.stringify(body)});
+  const r = await fetch(path + (path.includes("?") ? "&" : "?") + "t=" + TOKEN + "&lang=" + LANG, body === undefined ? {} :
+    {method:"POST", headers:{"Content-Type":"application/json","X-Token":TOKEN,"X-Lang":LANG}, body:JSON.stringify(body)});
   const j = await r.json();
-  if (!r.ok) throw new Error(j.error || "Aktion fehlgeschlagen");
+  if (!r.ok) throw new Error(j.error || T("Aktion fehlgeschlagen", "Action failed"));
   return j;
 };
-const secs = s => s.toFixed(1).replace(".", ",") + " s";
+const secs = s => (LANG === "en" ? s.toFixed(1) : s.toFixed(1).replace(".", ",")) + " s";
 let statusTimer;
 function status(text, {error=false, reveal=false}={}) {
   $("#statusText").textContent = text;
@@ -173,32 +179,33 @@ function songLabel(s) { return s.number ? `Song ${String(s.number).padStart(2,"0
 
 function changesText(c) {
   if (!c) return "";
-  if (c.first) return "Erstes Öffnen dieser Karte. Ab jetzt zeigt die App beim Öffnen, was das Pedal neu gespeichert hat.";
-  const when = c.since ? new Date(c.since * 1000).toLocaleString("de-AT", {dateStyle:"short", timeStyle:"short"}) : "dem letzten Öffnen";
-  if (c.nothing) return `Seit ${when} hat das Pedal nichts auf diese Karte gespeichert.`;
+  if (c.first) return T("Erstes Öffnen dieser Karte. Ab jetzt zeigt die App beim Öffnen, was das Pedal neu gespeichert hat.",
+    "First time this card is opened. From now on the app shows what the pedal has saved since.");
+  const when = c.since ? new Date(c.since * 1000).toLocaleString(T("de-AT", "en-GB"), {dateStyle:"short", timeStyle:"short"}) : T("dem letzten Öffnen", "it was last opened");
+  if (c.nothing) return T(`Seit ${when} hat das Pedal nichts auf diese Karte gespeichert.`, `The pedal has saved nothing to this card since ${when}.`);
   const fmt = list => list.map(x => `Song ${String(x.song).padStart(2,"0")} Part ${x.part}`).join(", ");
   const bits = [];
-  if (c.added.length) bits.push(`neu: ${fmt(c.added)}`);
-  if (c.changed.length) bits.push(`geändert: ${fmt(c.changed)}`);
-  if (c.removed.length) bits.push(`gelöscht: ${fmt(c.removed)}`);
-  if (c.selected_before !== c.selected_now && c.selected_now) bits.push(`Song-Auswahl jetzt Song ${String(c.selected_now).padStart(2,"0")}`);
-  return `Seit ${when} ${bits.join("; ")}.`;
+  if (c.added.length) bits.push(`${T("neu", "new")}: ${fmt(c.added)}`);
+  if (c.changed.length) bits.push(`${T("geändert", "changed")}: ${fmt(c.changed)}`);
+  if (c.removed.length) bits.push(`${T("gelöscht", "cleared")}: ${fmt(c.removed)}`);
+  if (c.selected_before !== c.selected_now && c.selected_now) bits.push(`${T("Song-Auswahl jetzt", "selected song now")} Song ${String(c.selected_now).padStart(2,"0")}`);
+  return T(`Seit ${when} ${bits.join("; ")}.`, `Since ${when}: ${bits.join("; ")}.`);
 }
 
 function renderSources() {
   const box = $("#sources"); box.replaceChildren();
   if (!state.sources.length) {
-    box.append(el("p", {class:"note"}, "Noch nichts geöffnet."));
+    box.append(el("p", {class:"note"}, T("Noch nichts geöffnet.", "Nothing open yet.")));
     return;
   }
   for (const src of state.sources) {
     const songs = state.songs.filter(s => s.source === src.id);
     box.append(el("section", {class:"src"},
-      el("h2", {}, el("span", {title:src.path}, src.kind === "card" ? `Karte: ${src.name}` : src.name),
-        el("button", {onclick: run(() => openPath({path:src.path})), title:"Datei neu einlesen, z. B. nachdem das Pedal gespeichert hat",
-          "aria-label":`${src.name} neu einlesen`}, "Neu einlesen"),
+      el("h2", {}, el("span", {title:src.path}, src.kind === "card" ? `${T("Karte", "Card")}: ${src.name}` : src.name),
+        el("button", {onclick: run(() => openPath({path:src.path})), title:T("Datei neu einlesen, z. B. nachdem das Pedal gespeichert hat", "Read the file again, e.g. after the pedal has saved"),
+          "aria-label":T(`${src.name} neu einlesen`, `Reload ${src.name}`)}, T("Neu einlesen", "Reload")),
         el("button", {onclick: run(async () => { const r = await api("/api/close", {source:src.id}); state = r.state;
-          if (current && current.startsWith(src.id + ":")) current = null; render(); }), "aria-label":`${src.name} schließen`}, "Schließen")),
+          if (current && current.startsWith(src.id + ":")) current = null; render(); }), "aria-label":T(`${src.name} schließen`, `Close ${src.name}`)}, T("Schließen", "Close"))),
       src.changes ? el("p", {class:"changes" + (src.changes.nothing ? " warn" : "")}, changesText(src.changes)) : null,
       songs.map(s => el("button", {class:"song" + (s.recorded ? "" : " empty"), "aria-current": s.id === current ? "true" : "false",
           onclick: () => { current = s.id; render(); }},
@@ -213,12 +220,13 @@ function renderEmpty() {
   const m = $("#main");
   const form = el("form", {class:"pathform", onsubmit: run(async e => { e.preventDefault();
       const p = $("#pathInput").value.trim(); if (p) await openPath({path:p}); })},
-    el("input", {type:"text", id:"pathInput", placeholder:"Pfad, z. B. E:\\TRIOPLUS.DAT", "aria-label":"Pfad zur Karte, zu einem Song oder Ordner"}),
-    el("button", {type:"submit"}, "Öffnen"));
+    el("input", {type:"text", id:"pathInput", placeholder:T("Pfad, z. B. E:\\TRIOPLUS.DAT", "Path, e.g. E:\\TRIOPLUS.DAT"), "aria-label":T("Pfad zur Karte, zu einem Song oder Ordner", "Path to a card, song or folder")}),
+    el("button", {type:"submit"}, T("Öffnen", "Open")));
   m.replaceChildren(el("div", {class:"empty-state"},
-    el("h1", {}, "Songs vom TRIO+ holen"),
-    el("p", {}, "Öffne die TRIOPLUS.DAT von der SD-Karte, einen exportierten Song (.tlsd) oder einen Ordner mit Songs. Die Dateien werden nur gelesen."),
-    cards.length ? el("div", {class:"row"}, cards.map(c => el("button", {class:"primary", onclick: run(() => openPath({path:c}))}, `SD-Karte öffnen: ${c}`))) : null,
+    el("h1", {}, T("Songs vom TRIO+ holen", "Get your songs off the TRIO+")),
+    el("p", {}, T("Öffne die TRIOPLUS.DAT von der SD-Karte, einen exportierten Song (.tlsd) oder einen Ordner mit Songs. Die Dateien werden nur gelesen.",
+      "Open TRIOPLUS.DAT from the SD card, an exported song (.tlsd) or a folder of songs. The files are only read, never changed.")),
+    cards.length ? el("div", {class:"row"}, cards.map(c => el("button", {class:"primary", onclick: run(() => openPath({path:c}))}, `${T("SD-Karte öffnen", "Open SD card")}: ${c}`))) : null,
     form));
 }
 
@@ -227,7 +235,7 @@ function bandText(p) {
   const b = p.band, bits = [];
   bits.push(GENRES[b.genre] || `Genre ${b.genre + 1}`);
   bits.push(`Style ${b.style + 1}`);
-  bits.push(BASS[b.bass_mode] || `Bassmodus ${b.bass_mode}`);
+  bits.push(BASS()[b.bass_mode] || `${T("Bassmodus", "Bass mode")} ${b.bass_mode}`);
   if (b.alt_time) bits.push("Alt Time");
   return bits.join(", ");
 }
@@ -239,84 +247,87 @@ function renderSong() {
   const src = state.sources.find(x => x.id === s.source);
   const m = $("#main");
   const head = el("div", {class:"songhead"},
-    el("div", {}, el("h1", {}, s.name), el("p", {}, `${songLabel(s)} auf ${src ? src.name : ""}`)),
+    el("div", {}, el("h1", {}, s.name), el("p", {}, `${songLabel(s)} ${T("auf", "on")} ${src ? src.name : ""}`)),
     s.recorded ? el("div", {class:"row"},
-      el("button", {onclick: run(() => doExport({song:s.id, what:"wav"}))}, "Alle Spuren als WAV speichern"),
+      el("button", {onclick: run(() => doExport({song:s.id, what:"wav"}))}, T("Alle Spuren als WAV speichern", "Save all tracks as WAV")),
       el("button", {onclick: run(() => doExport({song:s.id, what:"midi", edits: editsFor(s)})),
-        title:"Akkorde, Bass und Drums aller Parts als MIDI-Dateien"}, "Akkorde als MIDI"),
+        title:T("Akkorde, Bass und Drums aller Parts als MIDI-Dateien", "Chords, bass and drums of all parts as MIDI files")}, T("Akkorde als MIDI", "Chords as MIDI")),
       el("span", {class:"row dawrow"},
-        el("select", {id:"dawRepeats", "aria-label":"Wie oft jeder Part im DAW-Paket gespielt wird"},
+        el("select", {id:"dawRepeats", "aria-label":T("Wie oft jeder Part im DAW-Paket gespielt wird", "How often each part plays in the DAW package")},
           [1, 2, 4].map(n => el("option", {value:n}, `Parts ${n}×`))),
         el("button", {onclick: run(async () => { const r = await api("/api/export", {song:s.id, what:"daw",
             edits: editsFor(s), repeats: +$("#dawRepeats").value});
-            status(`Song-Paket gespeichert: ${r.files[0]}`, {reveal:true}); }),
-          title:"Ordner mit Gitarre.wav und Song.mid (Akkorde, Bass, Drums), synchron, für Ardour, Reaper und andere DAWs"},
-          "Für DAW exportieren")),
-      el("button", {class:"primary", onclick: run(() => doExport({song:s.id, what:"tlsd"}))}, "Als .tlsd speichern")) : null);
+            status(`${T("Song-Paket gespeichert", "Song package saved")}: ${r.files[0]}`, {reveal:true}); }),
+          title:T("Ordner mit Gitarre.wav und Song.mid (Akkorde, Bass, Drums), synchron, für Ardour, Reaper und andere DAWs",
+            "Folder with Guitar.wav and Song.mid (chords, bass, drums), in sync, for Ardour, Reaper and other DAWs")},
+          T("Für DAW exportieren", "Export for DAW"))),
+      el("button", {class:"primary", onclick: run(() => doExport({song:s.id, what:"tlsd"}))}, T("Als .tlsd speichern", "Save as .tlsd"))) : null);
   const face = el("div", {class:"face"});
-  if (!s.parts.some(p => p.trained)) face.append(el("p", {class:"note"}, "In diesem Song ist nichts aufgenommen."));
+  if (!s.parts.some(p => p.trained)) face.append(el("p", {class:"note"}, T("In diesem Song ist nichts aufgenommen.", "Nothing is recorded in this song.")));
   for (const p of s.parts) {
     const st = partState(p);
     const body = el("div", {});
     if (!p.trained) {
-      body.append(el("div", {class:"parthead"}, el("strong", {}, `Part ${p.part}`), el("span", {}, "leer")));
+      body.append(el("div", {class:"parthead"}, el("strong", {}, `Part ${p.part}`), el("span", {}, T("leer", "empty"))));
     } else {
       const dur = Math.max(p.tracks.main.seconds, p.tracks.overdub.seconds);
       body.append(el("div", {class:"parthead"}, el("strong", {}, `Part ${p.part}`), el("span", {}, secs(dur)), el("span", {}, bandText(p)),
         el("span", {class:"row"},
-          el("button", {onclick: () => addToBuilder(s.id, p.part)}, "In neuen Song übernehmen"),
+          el("button", {onclick: () => addToBuilder(s.id, p.part)}, T("In neuen Song übernehmen", "Add to new song")),
           el("button", {onclick: run(() => importWav(s.id, p.part, "replace")),
-            title:"Eine WAV-Datei wird zur Aufnahme dieses Parts. Länge und gelernte Begleitung bleiben."}, "WAV als Aufnahme…"),
+            title:T("Eine WAV-Datei wird zur Aufnahme dieses Parts. Länge und gelernte Begleitung bleiben.",
+              "A WAV file becomes this part's recording. Length and learned accompaniment stay.")}, T("WAV als Aufnahme…", "WAV as recording…")),
           p.current ? el("button", {onclick: run(() => importWav(s.id, p.part, "mix")),
-            title:"Eine WAV-Datei wird leiser zur gespielten Spur dazugemischt."}, "WAV dazumischen…") : null)));
+            title:T("Eine WAV-Datei wird leiser zur gespielten Spur dazugemischt.", "A WAV file is mixed in, quieter, with the playing track.")},
+            T("WAV dazumischen…", "Mix in WAV…")) : null)));
       let any = false;
       for (const t of ["main","overdub"]) {
         if (!p.tracks[t].has_audio) continue;
         any = true;
         const canvas = el("canvas", {class:"wave", "data-song":s.id, "data-part":p.part, "data-track":t,
-          role:"img", "aria-label":`Wellenform Part ${p.part} ${t === "main" ? "Hauptspur" : "Overdub"}`});
-        const playBtn = el("button", {"data-play":`${s.id}|${p.part}|${t}`, onclick: () => togglePlay(s.id, p.part, t)}, "Abspielen");
+          role:"img", "aria-label":`${T("Wellenform", "Waveform")} Part ${p.part} ${t === "main" ? T("Hauptspur", "Main track") : "Overdub"}`});
+        const playBtn = el("button", {"data-play":`${s.id}|${p.part}|${t}`, onclick: () => togglePlay(s.id, p.part, t)}, T("Abspielen", "Play"));
         canvas.addEventListener("click", ev => togglePlay(s.id, p.part, t, ev.offsetX / canvas.clientWidth));
         body.append(el("div", {class:"track"},
-          el("label", {}, t === "main" ? "Hauptspur" : "Overdub", p.current === t ? el("small", {class:"live"}, "spielt") : null), canvas,
+          el("label", {}, t === "main" ? T("Hauptspur", "Main track") : "Overdub", p.current === t ? el("small", {class:"live"}, T("spielt", "playing")) : null), canvas,
           el("span", {class:"acts"}, playBtn,
             el("button", {onclick: run(() => doExport({song:s.id, what:"wav", part:p.part, track:t}))}, "WAV"))));
       }
       if (p.has_layer) {
         const t = "layer";
         const canvas = el("canvas", {class:"wave", "data-song":s.id, "data-part":p.part, "data-track":t,
-          role:"img", "aria-label":`Wellenform Part ${p.part} letzte Ebene`});
+          role:"img", "aria-label":`${T("Wellenform", "Waveform")} Part ${p.part} ${T("letzte Ebene", "last layer")}`});
         canvas.addEventListener("click", ev => togglePlay(s.id, p.part, t, ev.offsetX / canvas.clientWidth));
         body.append(el("div", {class:"track"},
-          el("label", {title: p.undone ? "Ein Overdub, der am Pedal rückgängig gemacht wurde" :
-              "Nur das zuletzt Eingespielte, herausgerechnet aus beiden Spuren"},
-            "Letzte Ebene", el("small", {}, p.undone ? "rückgängig" : "einzeln")), canvas,
+          el("label", {title: p.undone ? T("Ein Overdub, der am Pedal rückgängig gemacht wurde", "An overdub that was undone on the pedal") :
+              T("Nur das zuletzt Eingespielte, herausgerechnet aus beiden Spuren", "Only what was played last, separated from both tracks")},
+            T("Letzte Ebene", "Last layer"), el("small", {}, p.undone ? T("rückgängig", "undone") : T("einzeln", "isolated"))), canvas,
           el("span", {class:"acts"},
-            el("button", {"data-play":`${s.id}|${p.part}|${t}`, onclick: () => togglePlay(s.id, p.part, t)}, "Abspielen"),
+            el("button", {"data-play":`${s.id}|${p.part}|${t}`, onclick: () => togglePlay(s.id, p.part, t)}, T("Abspielen", "Play")),
             el("button", {onclick: run(() => doExport({song:s.id, what:"wav", part:p.part, track:t}))}, "WAV"))));
       }
-      if (!any) body.append(el("p", {class:"note"}, "Gelernt, aber ohne Aufnahme."));
+      if (!any) body.append(el("p", {class:"note"}, T("Gelernt, aber ohne Aufnahme.", "Learned, but no recording.")));
       if (p.harmony) {
         const hasAudio = p.tracks && (p.tracks.main.has_audio || p.tracks.overdub.has_audio);
         const pid = `${s.id}|${p.part}`;
         body.append(el("div", {class:"chords"},
-          el("span", {class:"meta"}, `${p.harmony.bars} Takte ${p.harmony.time}, ${p.harmony.tempo.toFixed(0)} BPM` +
-            (p.harmony.key ? `, Tonart ${p.harmony.key}` : "") + (p.harmony.genre ? `, ${p.harmony.genre}` : "")),
+          el("span", {class:"meta"}, `${p.harmony.bars} ${T("Takte", "bars")} ${p.harmony.time}, ${p.harmony.tempo.toFixed(0)} BPM` +
+            (p.harmony.key ? `, ${T("Tonart", "key")} ${p.harmony.key}` : "") + (p.harmony.genre ? `, ${p.harmony.genre}` : "")),
           el("span", {class:"seq", "data-seq":pid}, effSegments(s, p, p.harmony).map((g, i) =>
             el("span", {"data-i":i, class: g.edited ? "edited" : "", role:"button", tabindex:"0",
-              title: g.edited ? `Geändert, erkannt war ${g.orig}. Klicken zum Bearbeiten` : "Klicken zum Ändern",
+              title: g.edited ? T(`Geändert, erkannt war ${g.orig}. Klicken zum Bearbeiten`, `Changed, detected was ${g.orig}. Click to edit`) : T("Klicken zum Ändern", "Click to change"),
               onclick: () => openChordEditor(s, p, i), onkeydown: ev => { if (ev.key === "Enter") openChordEditor(s, p, i); }},
               g.name))),
-          el("label", {class:"drumbox", title:"Ersatz-Schlagzeug passend zum Genre (nicht das Original des Pedals)"},
+          el("label", {class:"drumbox", title:T("Ersatz-Schlagzeug passend zum Genre (nicht das Original des Pedals)", "Stand-in drums for the genre (not the pedal's own drums)")},
             el("input", {type:"checkbox", "data-drums":pid, checked:true}), "Drums"),
           el("button", {"data-synth":`${pid}|0`, onclick: run(() => synthToggle(s.id, p, false, false)),
-            title:"Akkorde und Bass so anhören, wie sie in der MIDI-Datei stehen"}, "Akkorde anhören"),
+            title:T("Akkorde und Bass so anhören, wie sie in der MIDI-Datei stehen", "Hear chords and bass as they are in the MIDI file")}, T("Akkorde anhören", "Play chords")),
           hasAudio ? el("button", {"data-synth":`${pid}|1`, onclick: run(() => synthToggle(s.id, p, true, false)),
-            title:"Akkorde und Bass zusammen mit der Aufnahme"}, "Mit Aufnahme") : null,
+            title:T("Akkorde und Bass zusammen mit der Aufnahme", "Chords and bass together with the recording")}, T("Mit Aufnahme", "With recording")) : null,
           el("button", {onclick: run(() => doExport({song:s.id, what:"midi", part:p.part, edits: editsFor(s)})),
-            title:"Akkorde und Bass-Grundtöne dieses Parts als MIDI-Datei"}, "MIDI"),
+            title:T("Akkorde und Bass-Grundtöne dieses Parts als MIDI-Datei", "Chords and bass roots of this part as a MIDI file")}, "MIDI"),
           el("button", {onclick: run(() => doExport({song:s.id, what:"midi", part:p.part, half:true, edits: editsFor(s)})),
-            title:"Wie MIDI, aber mit der Lesart in halbem Tempo"}, "MIDI halbes Tempo")),
+            title:T("Wie MIDI, aber mit der Lesart in halbem Tempo", "Like MIDI, but read at half tempo")}, T("MIDI halbes Tempo", "MIDI half tempo"))),
           el("div", {class:"chordedit", "data-editor":pid}));
       }
     }
@@ -336,34 +347,36 @@ function partOptions() {
 }
 function addToBuilder(song, part) {
   const i = builder.findIndex(x => !x);
-  if (i < 0) return status("Alle fünf Parts des neuen Songs sind belegt.", {error:true});
+  if (i < 0) return status(T("Alle fünf Parts des neuen Songs sind belegt.", "All five parts of the new song are taken."), {error:true});
   builder[i] = {song, part};
   render();
-  status(`Als Part ${i + 1} in den neuen Song übernommen.`);
+  status(T(`Als Part ${i + 1} in den neuen Song übernommen.`, `Added to the new song as part ${i + 1}.`));
 }
 function renderBuilder() {
   const opts = partOptions();
   const slots = builder.map((b, i) => {
-    const sel = el("select", {"aria-label":`Part ${i + 1} des neuen Songs`, onchange: e => {
+    const sel = el("select", {"aria-label":T(`Part ${i + 1} des neuen Songs`, `Part ${i + 1} of the new song`), onchange: e => {
         builder[i] = e.target.value ? {song:e.target.value.split("|")[0], part:+e.target.value.split("|")[1]} : null; }},
-      el("option", {value:""}, "leer"),
+      el("option", {value:""}, T("leer", "empty")),
       opts.map(o => el("option", {value:o.value, selected: b && o.value === `${b.song}|${b.part}`}, o.label)));
     return el("div", {class:"slot"}, el("span", {}, `Part ${i + 1}`), sel);
   });
-  const name = el("input", {type:"text", id:"newName", value:newName, maxlength:"60", "aria-label":"Name des neuen Songs",
+  if (newName === null) newName = T("Neuer Song", "New song");
+  const name = el("input", {type:"text", id:"newName", value:newName, maxlength:"60", "aria-label":T("Name des neuen Songs", "Name of the new song"),
     oninput: e => { newName = e.target.value; }});
   return el("section", {class:"builder", "aria-labelledby":"bh"},
-    el("h2", {id:"bh"}, "Neuen Song zusammenstellen"),
-    el("p", {class:"note"}, "Wähle für jeden Part einen aufgenommenen Part aus einem beliebigen Song. Der neue Song wird als .tlsd gespeichert und lässt sich mit dem TRIO Manager auf die Karte laden."),
+    el("h2", {id:"bh"}, T("Neuen Song zusammenstellen", "Put together a new song")),
+    el("p", {class:"note"}, T("Wähle für jeden Part einen aufgenommenen Part aus einem beliebigen Song. Der neue Song wird als .tlsd gespeichert und lässt sich mit dem TRIO Manager auf die Karte laden.",
+      "Pick a recorded part from any song for each part. The new song is saved as .tlsd and can be put on the card with TRIO Manager.")),
     el("div", {class:"slots"}, slots),
     el("div", {class:"row"}, el("div", {style:"flex:1;min-width:12rem"}, name),
-      el("button", {onclick: () => { builder.fill(null); render(); }}, "Leeren"),
+      el("button", {onclick: () => { builder.fill(null); render(); }}, T("Leeren", "Clear")),
       el("button", {class:"primary", onclick: run(async () => {
         const n = $("#newName").value.trim();
-        if (!/^[ -~]+$/.test(n)) throw new Error("Der Name darf nur einfache Zeichen ohne Umlaute enthalten.");
+        if (!/^[ -~]+$/.test(n)) throw new Error(T("Der Name darf nur einfache Zeichen ohne Umlaute enthalten.", "The name may only use plain characters without accents."));
         const r = await api("/api/build", {name:n, parts:builder});
-        state = r.state; builder.fill(null); newName = "Neuer Song"; render();
-        status(`Gespeichert: ${r.file}`, {reveal:true}); })}, "Song erstellen")));
+        state = r.state; builder.fill(null); newName = null; render();
+        status(`${T("Gespeichert", "Saved")}: ${r.file}`, {reveal:true}); })}, T("Song erstellen", "Create song"))));
 }
 
 async function drawWaves() {
@@ -404,7 +417,7 @@ function togglePlay(song, part, track, at) {
   playing = {key, progress:0};
   player.src = `/api/wav?song=${encodeURIComponent(song)}&part=${part}&track=${track}&t=${TOKEN}`;
   player.onloadedmetadata = () => { if (at !== undefined) player.currentTime = at * player.duration; };
-  player.play().catch(e => status("Wiedergabe nicht möglich: " + e.message, {error:true}));
+  player.play().catch(e => status(T("Wiedergabe nicht möglich: ", "Cannot play: ") + e.message, {error:true}));
   updateButtons();
 }
 player.addEventListener("pause", () => { playing = null; updateButtons(); redraw(); });
@@ -417,7 +430,7 @@ function redraw(only) {
   }
 }
 function updateButtons() {
-  for (const b of document.querySelectorAll("[data-play]")) b.textContent = playing && playing.key === b.dataset.play ? "Stopp" : "Abspielen";
+  for (const b of document.querySelectorAll("[data-play]")) b.textContent = playing && playing.key === b.dataset.play ? T("Stopp", "Stop") : T("Abspielen", "Play");
 }
 
 async function importWav(song, part, mode) {
@@ -427,8 +440,8 @@ async function importWav(song, part, mode) {
   const n = state.songs.find(x => r.opened.includes(x.source));
   if (n) current = n.id;
   render();
-  let msg = `Gespeichert: ${r.file}`;
-  if (r.info.truncated) msg += ` (WAV war länger als der Part und wurde gekürzt)`;
+  let msg = `${T("Gespeichert", "Saved")}: ${r.file}`;
+  if (r.info.truncated) msg += T(" (WAV war länger als der Part und wurde gekürzt)", " (the WAV was longer than the part and was cut)");
   status(msg, {reveal:true});
 }
 
@@ -447,7 +460,7 @@ function synthStop() {
 function updateSynthButtons() {
   for (const b of document.querySelectorAll("[data-synth]")) {
     const on = synth && synth.key === b.dataset.synth;
-    b.textContent = on ? "Stopp" : (b.dataset.synth.endsWith("|1") ? "Mit Aufnahme" : "Akkorde anhören");
+    b.textContent = on ? T("Stopp", "Stop") : (b.dataset.synth.endsWith("|1") ? T("Mit Aufnahme", "With recording") : T("Akkorde anhören", "Play chords"));
   }
 }
 
@@ -456,7 +469,7 @@ function updateSynthButtons() {
 const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const KIND_DEFS = {0:["", [0,4,7]], 2:["maj7",[0,4,7,11]], 4:["m",[0,3,7]], 6:["m7",[0,3,7,10]],
                    8:["dim",[0,3,6]], 10:["7",[0,4,7,10]], 14:["sus4",[0,5,7]], 15:["5",[0,7,12]]};
-const KIND_CHOICES = [[0,"Dur"],[4,"Moll"],[10,"7"],[2,"maj7"],[6,"m7"],[14,"sus4"],[15,"5 (Power)"],[8,"vermindert"]];
+const KIND_CHOICES = () => [[0,T("Dur","major")],[4,T("Moll","minor")],[10,"7"],[2,"maj7"],[6,"m7"],[14,"sus4"],[15,"5 (power)"],[8,T("vermindert","diminished")]];
 let chordEdits = {};
 try { chordEdits = JSON.parse(localStorage.getItem("trioChordEdits") || "{}"); } catch (e) { chordEdits = {}; }
 const saveEdits = () => { try { localStorage.setItem("trioChordEdits", JSON.stringify(chordEdits)); } catch (e) {} };
@@ -490,21 +503,21 @@ function openChordEditor(song, p, i) {
   const box = document.querySelector(`[data-editor="${song.id}|${p.part}"]`);
   if (!box) return;
   const seg = effSegments(song, p, p.harmony)[i], orig = p.harmony.segments[i];
-  const rootSel = el("select", {"aria-label":"Grundton"}, NOTE_NAMES.map((n, r) => el("option", {value:r, selected: r === seg.root}, n)));
-  const kindSel = el("select", {"aria-label":"Akkordart"}, KIND_CHOICES.map(([k, l]) =>
+  const rootSel = el("select", {"aria-label":T("Grundton", "Root")}, NOTE_NAMES.map((n, r) => el("option", {value:r, selected: r === seg.root}, n)));
+  const kindSel = el("select", {"aria-label":T("Akkordart", "Chord type")}, KIND_CHOICES().map(([k, l]) =>
     el("option", {value:k, selected: k === (KIND_DEFS[seg.kind] ? seg.kind : 0)}, l)));
   const key = editKey(song, p.part);
-  box.replaceChildren(
-    el("strong", {}, `Akkord ${i + 1}`), el("span", {class:"note"}, `ab Schlag ${seg.beat + 1}, erkannt: ${orig.name}`),
+  box.replaceChildren(...[
+    el("strong", {}, `${T("Akkord", "Chord")} ${i + 1}`), el("span", {class:"note"}, T(`ab Schlag ${seg.beat + 1}, erkannt: ${orig.name}`, `from beat ${seg.beat + 1}, detected: ${orig.name}`)),
     rootSel, kindSel,
     el("button", {class:"primary", onclick: () => {
       (chordEdits[key] = chordEdits[key] || {})[i] = {root:+rootSel.value, kind:+kindSel.value};
-      saveEdits(); renderSong(); }}, "Übernehmen"),
+      saveEdits(); renderSong(); }}, T("Übernehmen", "Apply")),
     chordEdits[key] && chordEdits[key][i] ? el("button", {onclick: () => {
-      delete chordEdits[key][i]; saveEdits(); renderSong(); }}, "Wie erkannt") : null,
+      delete chordEdits[key][i]; saveEdits(); renderSong(); }}, T("Wie erkannt", "As detected")) : null,
     chordEdits[key] && Object.keys(chordEdits[key]).length ? el("button", {onclick: () => {
-      delete chordEdits[key]; saveEdits(); renderSong(); }}, "Alle Änderungen in diesem Part verwerfen") : null,
-    el("button", {onclick: () => box.replaceChildren()}, "Schließen"));
+      delete chordEdits[key]; saveEdits(); renderSong(); }}, T("Alle Änderungen in diesem Part verwerfen", "Discard all changes in this part")) : null,
+    el("button", {onclick: () => box.replaceChildren()}, T("Schließen", "Close"))].filter(Boolean));
   rootSel.focus();
 }
 
@@ -689,7 +702,7 @@ async function synthToggle(songId, p, withAudio, half) {
 
 async function doExport(body) {
   const r = await api("/api/export", body);
-  status(r.files.length === 1 ? `Gespeichert: ${r.files[0]}` : `${r.files.length} Dateien gespeichert.`, {reveal:true});
+  status(r.files.length === 1 ? `${T("Gespeichert", "Saved")}: ${r.files[0]}` : T(`${r.files.length} Dateien gespeichert.`, `${r.files.length} files saved.`), {reveal:true});
 }
 async function openPath(body) {
   const r = await api("/api/open", body);
@@ -701,7 +714,17 @@ async function openPath(body) {
   const card = state.sources.find(x => r.opened.includes(x.id) && x.changes);
   if (card) status(changesText(card.changes), {error: !!card.changes.nothing});
 }
+function renderChrome() {
+  document.documentElement.lang = LANG;
+  $("#lang").value = LANG;
+  const texts = {"#projLink":["Projektseite","Project page"], "#openCard":["Karte oder Song öffnen…","Open card or song…"],
+    "#openFolder":["Ordner öffnen…","Open folder…"], "#saveIn":["Speichern in","Save to"], "#changeDir":["Ändern…","Change…"],
+    "#reveal":["Anzeigen","Show"], "#quit":["Beenden","Quit"], "#statusAction":["Ordner anzeigen","Show folder"]};
+  for (const [sel, [de, en]] of Object.entries(texts)) $(sel).textContent = T(de, en);
+  $("#sources").setAttribute("aria-label", T("Geöffnete Karten und Songs", "Open cards and songs"));
+}
 function render() {
+  renderChrome();
   $("#ver").textContent = state.version ? "Version " + state.version : "";
   const d = state.export_dir || "";
   $("#exportDir").textContent = d.length > 34 ? "…" + d.slice(-33) : d; $("#exportDir").title = d;
@@ -714,7 +737,9 @@ $("#openFolder").onclick = run(() => openPath({dialog:"folder"}));
 $("#changeDir").onclick = run(async () => { const r = await api("/api/exportdir", {dialog:true}); state.export_dir = r.export_dir; render(); });
 $("#reveal").onclick = $("#statusAction").onclick = run(() => api("/api/reveal", {}));
 $("#quit").onclick = run(async () => { await api("/api/quit", {}); document.body.replaceChildren(el("div", {class:"empty-state"},
-  el("h1", {}, "TRIO Tool ist beendet"), el("p", {}, "Du kannst dieses Fenster schließen."))); });
+  el("h1", {}, T("TRIO Tool ist beendet", "TRIO Tool has stopped")), el("p", {}, T("Du kannst dieses Fenster schließen.", "You can close this window.")))); });
+$("#lang").onchange = e => { LANG = e.target.value === "en" ? "en" : "de"; try { localStorage.setItem("trioLang", LANG); } catch (err) {}
+  if (newName === "Neuer Song" || newName === "New song") newName = null; render(); };
 window.addEventListener("resize", () => { clearTimeout(window._rz); window._rz = setTimeout(drawWaves, 150); });
 
 (async () => {

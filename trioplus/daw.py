@@ -46,13 +46,52 @@ Parts:
 {parts}
 """
 
+README_EN = """{name} - song package from TRIO Tool {version}
+
+Guitar.wav                  The track the pedal plays, all parts one after
+                            another.
+Song.mid                    Chords, bass and stand-in drums (not the pedal's
+                            own drums), with tempo and time signature changes
+                            for every part. With a bar grid.
+Song (fixed tempo).mid      The same notes at a fixed 120 BPM, every note at
+                            its absolute time. Stays in sync with the guitar
+                            in any DAW, even without a tempo map, but without
+                            a matching bar grid.
+
+All files start at the beginning and run in sync.
+
+Ardour: create a new session at 44.1 kHz, then Session > Import, position
+"session start". Import Guitar.wav. Then import Song.mid with the option
+"Use MIDI Tempo Map" so the bar grid matches. If Ardour crashes doing this
+(known with some files in Ardour 9.x), import "Song (fixed tempo).mid"
+without that option instead and leave the session tempo at 120 BPM. Give the
+MIDI tracks an instrument (e.g. ACE Reasonable Synth, and a General MIDI
+instrument for the drums).
+
+Other DAWs (Reaper, Ableton, Bitwig, Studio One ...): drag Guitar.wav and
+Song.mid to the start and accept the MIDI file's tempo information;
+otherwise use "Song (fixed tempo).mid" at 120 BPM.
+
+Parts:
+{parts}
+"""
+
+NAMES = {
+    "de": {"wav": "Gitarre.wav", "fixed": "Song (festes Tempo).mid", "readme": "LIESMICH.txt",
+           "skipped": "übersprungen", "bars": "Takte", "text": README},
+    "en": {"wav": "Guitar.wav", "fixed": "Song (fixed tempo).mid", "readme": "README.txt",
+           "skipped": "skipped", "bars": "bars", "text": README_EN},
+}
+
 
 def song_package(song: Song, outdir: Path, name: str, repeats: int = 1, drums: bool = True,
-                 section: int | None = None, edits: dict | None = None, version: str = "") -> dict:
-    """Write Gitarre.wav, Song.mid and LIESMICH.txt to outdir.
+                 section: int | None = None, edits: dict | None = None, version: str = "",
+                 lang: str = "de") -> dict:
+    """Write Gitarre.wav, Song.mid and LIESMICH.txt to outdir (English names with lang="en").
 
     edits: {part_number: [{"i", "root", "kind"}, ...]} chord changes per part.
     """
+    L = NAMES.get(lang, NAMES["de"])
     entries = []
     pcm_all = bytearray()
     for p in song.parts:
@@ -81,7 +120,7 @@ def song_package(song: Song, outdir: Path, name: str, repeats: int = 1, drums: b
         raise TlsdError("Kein Part mit Akkord-Analyse in diesem Song")
 
     outdir.mkdir(parents=True, exist_ok=True)
-    wav_path = outdir / "Gitarre.wav"
+    wav_path = outdir / L["wav"]
     with wave.open(str(wav_path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(SAMPLE_WIDTH)
@@ -90,21 +129,21 @@ def song_package(song: Song, outdir: Path, name: str, repeats: int = 1, drums: b
     spec = [(e["label"], e["an"], e["repeats"], e["tempo"], e["genre"]) for e in playable]
     mid_path = outdir / "Song.mid"
     mid_path.write_bytes(build_song_midi(spec, name))
-    (outdir / "Song (festes Tempo).mid").write_bytes(build_song_midi(spec, name, fixed_tempo=120.0))
+    (outdir / L["fixed"]).write_bytes(build_song_midi(spec, name, fixed_tempo=120.0))
 
     lines = []
     t = 0.0
     for e in entries:
         if "an" not in e:
-            lines.append(f"  Part {e['part']}: übersprungen ({e['skipped']})")
+            lines.append(f"  Part {e['part']}: {L['skipped']} ({e['skipped']})")
             continue
         an = e["an"]
-        lines.append(f"  {t:7.2f} s  Part {e['part']}: {an.bars} Takte {an.beats_per_bar}/4, "
+        lines.append(f"  {t:7.2f} s  Part {e['part']}: {an.bars} {L['bars']} {an.beats_per_bar}/4, "
                      f"{e['tempo']:.2f} BPM, x{e['repeats']}: " + " ".join(c.name for c in an.chords))
         t += e["seconds"] * e["repeats"]
-    (outdir / "LIESMICH.txt").write_text(
-        README.format(name=name, version=version, parts="\n".join(lines)), encoding="utf-8")
+    (outdir / L["readme"]).write_text(
+        L["text"].format(name=name, version=version, parts="\n".join(lines)), encoding="utf-8")
     return {"folder": str(outdir), "wav": str(wav_path), "midi": str(mid_path),
-            "midi_fixed": str(outdir / "Song (festes Tempo).mid"),
+            "midi_fixed": str(outdir / L["fixed"]),
             "seconds": round(len(pcm_all) / SAMPLE_WIDTH / SAMPLE_RATE, 3),
             "parts": [{k: v for k, v in e.items() if k != "an"} for e in entries]}

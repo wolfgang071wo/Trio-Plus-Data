@@ -85,3 +85,17 @@ def test_opening_again_rereads_the_file(server, tmp_path):
     st = call("/api/open", {"path": str(f)})["state"]
     assert len(st["sources"]) == 1
     assert [p["trained"] for p in st["songs"][0]["parts"]][:4] == [True, True, True, True]
+
+
+def test_english(server, tmp_path):
+    call, _ = server
+    from trioplus.i18n import tr
+    assert tr("Part 3: keine Akkorde gefunden", "en") == "Part 3: no chords found"
+    assert tr("Wähle mindestens einen Part", "de") == "Wähle mindestens einen Part"
+    with pytest.raises(urllib.error.HTTPError) as e:
+        call("/api/open?lang=en", {"path": str(tmp_path / "nope.tlsd")})
+    assert "does not exist" in json.loads(e.value.read())["error"]
+    sid = call("/api/open", {"path": str(SONG_05)})["state"]["songs"][0]["id"]
+    folder = Path(call("/api/export?lang=en", {"song": sid, "what": "daw"})["files"][0])
+    assert sorted(p.name for p in folder.iterdir()) == ["Guitar.wav", "README.txt", "Song (fixed tempo).mid", "Song.mid"]
+    assert "song package" in (folder / "README.txt").read_text(encoding="utf-8")

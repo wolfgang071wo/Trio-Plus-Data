@@ -30,6 +30,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .. import __version__
 from ..card import NUM_SONGS, Card
+from ..i18n import norm, tr, word
 from ..tlsd import NUM_PARTS, SAMPLE_RATE, SAMPLE_WIDTH, TRACKS, Song, TlsdError
 
 STATIC = Path(__file__).with_name("static")
@@ -101,7 +102,7 @@ def _find_cards() -> list[str]:
     return found
 
 
-def _dialog(kind: str) -> str:
+def _dialog(kind: str, lang: str = "de") -> str:
     """Native file/folder dialog via tkinter; empty string if unavailable or cancelled."""
     try:
         import tkinter
@@ -116,16 +117,16 @@ def _dialog(kind: str) -> str:
             root.withdraw()
             root.attributes("-topmost", True)
             if kind == "folder":
-                result["path"] = filedialog.askdirectory(title="Ordner wählen") or ""
+                result["path"] = filedialog.askdirectory(title=word("pick_folder", lang)) or ""
             elif kind == "wav":
                 result["path"] = filedialog.askopenfilename(
-                    title="WAV-Datei wählen",
-                    filetypes=[("WAV", "*.wav *.WAV"), ("Alle Dateien", "*.*")],
+                    title=word("pick_wav", lang),
+                    filetypes=[("WAV", "*.wav *.WAV"), (word("all_files", lang), "*.*")],
                 ) or ""
             else:
                 result["path"] = filedialog.askopenfilename(
-                    title="TRIO+ Karte oder Song öffnen",
-                    filetypes=[("TRIO+ Dateien", "*.DAT *.dat *.tlsd"), ("Alle Dateien", "*.*")],
+                    title=word("pick_trio", lang),
+                    filetypes=[(word("trio_files", lang), "*.DAT *.dat *.tlsd"), (word("all_files", lang), "*.*")],
                 ) or ""
             root.destroy()
         except Exception:
@@ -334,7 +335,8 @@ class Library:
         return out
 
     def export(self, song_id: str, what: str, part: int | None = None, track: str | None = None,
-               half: bool = False, edits: dict | None = None, repeats: int = 1) -> list[str]:
+               half: bool = False, edits: dict | None = None, repeats: int = 1,
+               lang: str = "de") -> list[str]:
         song = self.song(song_id)
         info = self.info(song_id)
         prefix = f"{info['number']:02d} " if info.get("number") else ""
@@ -354,7 +356,7 @@ class Library:
                     out.write_bytes(_wav_bytes(pcm))
                     written.append(str(out))
                 if track == "layer":
-                    out = self._out(f"{base} - Part {p.number} letzte Ebene.wav")
+                    out = self._out(f"{base} - Part {p.number} {word('layer', lang)}.wav")
                     out.write_bytes(_wav_bytes(self.layer(song_id, p.number).pcm))
                     written.append(str(out))
         elif what == "midi":
@@ -384,13 +386,14 @@ class Library:
             from ..daw import song_package
             folder = self._out(f"{base} - DAW")
             song_package(song, folder, info["name"], repeats=max(1, min(16, int(repeats))),
-                         edits=edits, version=ver)
+                         edits=edits, version=ver, lang=lang)
             written.append(str(folder))
         else:
             raise TlsdError("unbekanntes Exportformat")
         return written
 
-    def import_wav(self, song_id: str, part: int, wav: str, mode: str, gain: float) -> tuple[str, dict]:
+    def import_wav(self, song_id: str, part: int, wav: str, mode: str, gain: float,
+                   lang: str = "de") -> tuple[str, dict]:
         from ..wavein import import_wav, read_wav_mono16
 
         song = Song.from_bytes(self.song(song_id).to_bytes())
@@ -398,7 +401,7 @@ class Library:
         song.set_part(part, new)
         meta = self.info(song_id)
         prefix = f"{meta['number']:02d} " if meta.get("number") else ""
-        out = self._out(_safe(f"{prefix}{meta['name']} mit {Path(wav).stem}") + ".tlsd")
+        out = self._out(_safe(f"{prefix}{meta['name']} {word('with', lang)} {Path(wav).stem}") + ".tlsd")
         data = song.to_bytes()
         Song.from_bytes(data)
         out.write_bytes(data)
@@ -446,8 +449,12 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, status=HTTPStatus.OK):
         self._send(status, json.dumps(obj).encode(), "application/json; charset=utf-8")
 
+    def _lang(self) -> str:
+        q = parse_qs(urlparse(self.path).query)
+        return norm(self.headers.get("X-Lang") or q.get("lang", ["de"])[0])
+
     def _error(self, msg, status=HTTPStatus.BAD_REQUEST):
-        self._json({"error": msg}, status)
+        self._json({"error": tr(msg, self._lang())}, status)
 
     def _authorized(self, query) -> bool:
         return secrets.compare_digest(self.headers.get("X-Token", "") or query.get("t", [""])[0], self.token)
@@ -496,8 +503,9 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError):
             return self._error("ungültige Anfrage")
         try:
+            lang = self._lang()
             if url.path == "/api/open":
-                path = body.get("path") or (_dialog(body.get("dialog", "file")) if body.get("dialog") else "")
+                path = body.get("path") or (_dialog(body.get("dialog", "file"), lang) if body.get("dialog") else "")
                 if not path:
                     return self._json({"opened": [], "cancelled": True})
                 return self._json({"opened": self.lib.open(path), "state": self.lib.state()})
@@ -506,22 +514,23 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"state": self.lib.state()})
             if url.path == "/api/export":
                 files = self.lib.export(body["song"], body["what"], body.get("part"), body.get("track"),
-                                        bool(body.get("half")), body.get("edits"), int(body.get("repeats", 1)))
+                                        bool(body.get("half")), body.get("edits"), int(body.get("repeats", 1)),
+                                        lang)
                 return self._json({"files": files})
             if url.path == "/api/build":
-                out = self.lib.build(body.get("name", "").strip() or "Neuer Song", body.get("parts", []))
+                out = self.lib.build(body.get("name", "").strip() or word("new_song", lang), body.get("parts", []))
                 self.lib.open(out)
                 return self._json({"file": out, "state": self.lib.state()})
             if url.path == "/api/importwav":
-                wav = body.get("path") or (_dialog("wav") if body.get("dialog") else "")
+                wav = body.get("path") or (_dialog("wav", lang) if body.get("dialog") else "")
                 if not wav:
                     return self._json({"cancelled": True})
                 out, info = self.lib.import_wav(body["song"], int(body["part"]), wav,
-                                                body.get("mode", "replace"), float(body.get("gain", 1.0)))
+                                                body.get("mode", "replace"), float(body.get("gain", 1.0)), lang)
                 opened = self.lib.open(out)
                 return self._json({"file": out, "info": info, "opened": opened, "state": self.lib.state()})
             if url.path == "/api/exportdir":
-                path = body.get("path") or (_dialog("folder") if body.get("dialog") else "")
+                path = body.get("path") or (_dialog("folder", lang) if body.get("dialog") else "")
                 if path:
                     self.lib.export_dir = Path(path)
                 return self._json({"export_dir": str(self.lib.export_dir)})
