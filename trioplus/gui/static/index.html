@@ -522,32 +522,28 @@ function openChordEditor(song, p, i) {
 }
 
 
-// Bass: a plucked string in the manner of a fingerstyle Jazz Bass. Karplus-Strong
-// string (smoothed noise as the finger, comb for pluck/pickup position) plus a
-// little fundamental for body, rendered once per note; played through a gentle
-// low-pass like a slightly rolled-back tone knob. No distortion.
+// Bass: a fingerstyle electric bass built from the string's harmonics. Each
+// harmonic is weighted by where the finger plucks and where the pickup sits,
+// and decays at its own rate (high ones fast, the fundamental slowly), which
+// gives the round, warm, long-ringing tone of a Jazz Bass without any buzz.
 const bassCache = {};
 function bassBuffer(ctx, note) {
   const sr = ctx.sampleRate, key = sr + ":" + note;
   if (bassCache[key]) return bassCache[key];
-  const f = mtof(note), len = Math.floor(sr * 3);
-  const N = Math.max(2, Math.round(sr / f - 0.5));          // loop delay incl. the averaging half sample
-  const rho = Math.pow(0.001, 1 / (3.2 * f));               // about -60 dB after 3.2 s
-  const ex = new Float32Array(N); let lp = 0;
-  for (let i = 0; i < N; i++) { lp = lp * 0.55 + (Math.random() * 2 - 1) * 0.45; ex[i] = lp; }  // soft finger
-  const pos = Math.max(1, Math.round(N * 0.18));            // pluck near the bridge pickup
+  const f = mtof(note), len = Math.floor(sr * 4);
   const buf = ctx.createBuffer(1, len, sr), y = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) {
-    const x = i < N ? ex[i] - (i >= pos ? 0.75 * ex[i - pos] : 0) : 0;
-    const a = i >= N ? y[i - N] : 0, b2 = i > N ? y[i - N - 1] : 0;
-    y[i] = x + rho * 0.5 * (a + b2);
+  const pluck = 0.27, pickup = 0.2;                    // fractions of the string length
+  for (let k = 1; f * k < 2400; k++) {
+    const amp = Math.abs(Math.sin(Math.PI * k * pluck)) * (0.35 + Math.abs(Math.sin(Math.PI * k * pickup))) / Math.pow(k, 1.3);
+    const tau = 3.2 / (1 + 0.09 * Math.pow(k - 1, 1.5) * (f / 55));  // seconds
+    const fk = f * k * Math.sqrt(1 + 0.00004 * k * k);  // a touch of string stiffness
+    const w = 2 * Math.PI * fk / sr, ph = Math.random() * 0.3, n = Math.min(len, Math.floor(tau * 7 * sr));
+    for (let i = 0; i < n; i++) y[i] += amp * Math.sin(w * i + ph) * Math.exp(-i / (tau * sr));
   }
   let peak = 1e-6;
   for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(y[i]));
-  for (let i = 0; i < len; i++) {                           // normalise, add the round fundamental
-    const t = i / sr;
-    y[i] = 0.75 * y[i] / peak + 0.4 * Math.sin(2 * Math.PI * f * t) * Math.exp(-t / 1.1) * Math.min(1, t * 400);
-  }
+  const att = Math.floor(sr * 0.004);
+  for (let i = 0; i < len; i++) y[i] = y[i] / peak * (i < att ? i / att : 1);
   return bassCache[key] = buf;
 }
 function bassNote(ctx, out, freq, t, dur, accent) {
@@ -555,14 +551,14 @@ function bassNote(ctx, out, freq, t, dur, accent) {
   const v = accent * (0.9 + Math.random() * 0.12);
   const note = Math.round(69 + 12 * Math.log2(freq / 440));
   const src = ctx.createBufferSource(); src.buffer = bassBuffer(ctx, note);
-  const tone = ctx.createBiquadFilter(); tone.type = "lowpass"; tone.frequency.value = 1400; tone.Q.value = 0.5;
-  const body = ctx.createBiquadFilter(); body.type = "peaking"; body.frequency.value = 110; body.gain.value = 3; body.Q.value = 0.8;
+  const tone = ctx.createBiquadFilter(); tone.type = "lowpass"; tone.frequency.value = 1800; tone.Q.value = 0.4;
   const amp = ctx.createGain();
-  amp.gain.setValueAtTime(0.42 * v, t);
-  amp.gain.setValueAtTime(0.42 * v, t + Math.max(0.05, dur - 0.05));
-  amp.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.04);  // finger damps the string
-  src.connect(tone); tone.connect(body); body.connect(amp); amp.connect(out);
-  src.start(t); src.stop(t + dur + 0.1);
+  const hold = Math.max(0.08, dur);                     // ring up to the next note ...
+  amp.gain.setValueAtTime(0.38 * v, t);
+  amp.gain.setValueAtTime(0.38 * v, t + hold);
+  amp.gain.setTargetAtTime(0, t + hold, 0.07);          // ... then a soft finger damp
+  src.connect(tone); tone.connect(amp); amp.connect(out);
+  src.start(t); src.stop(t + hold + 0.6);
 }
 
 let noiseBuf = null;
@@ -700,7 +696,7 @@ async function synthToggle(songId, p, withAudio, half) {
   for (const g of effSegments(song, p, h)) {
     const s0 = t0 + g.beat * spb, s1 = t0 + g.end * spb;
     for (const k of g.keys) voice(mtof(k), s0, s1 - s0, "triangle", chordBus, 0.09, 0.55);
-    for (let b = g.beat; b < g.end; b++) bassNote(ctx, bassBus, mtof(g.bass), t0 + b * spb, spb * 0.9, b === g.beat ? 1 : 0.82);
+    for (let b = g.beat; b < g.end; b++) bassNote(ctx, bassBus, mtof(g.bass), t0 + b * spb, spb * 0.97, b === g.beat ? 1 : 0.82);
   }
   if (buffer) {
     const src = ctx.createBufferSource(), gain = ctx.createGain();
