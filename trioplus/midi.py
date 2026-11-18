@@ -92,10 +92,13 @@ def build_song_midi(parts: list[tuple[str, Analysis, int, float, int | None]], t
     meta.meta(0, 0x03, title.encode("ascii", "replace"))
     chords.meta(0, 0x03, b"Chords")
     chords.add(0, bytes([0xC0, 4]), order=0)  # electric piano
+    chords.add(0, bytes([0xB0, 7, 64]), order=0)  # channel volume: sit under the guitar
     bass.meta(0, 0x03, b"Bass")
     bass.add(0, bytes([0xC1, 33]), order=0)  # finger bass
+    bass.add(0, bytes([0xB1, 7, 84]), order=0)
     genres = sorted({genre_name(g) for *_, g in parts if g is not None})
     drums.meta(0, 0x03, f"Drums ({', '.join(genres)}, stand-in)".encode("ascii", "replace"))
+    drums.add(0, bytes([0xB9, 7, 72]), order=0)
 
     tick = 0
     seconds = 0.0

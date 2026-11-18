@@ -91,6 +91,7 @@ main{overflow:auto;padding:1.4rem 1.8rem 3rem}
 .dawrow select{width:auto}
 .chords button{padding:.25rem .55rem;font-size:.85rem}
 .chords .drumbox{display:flex;align-items:center;gap:.3rem;font-size:.9rem;color:var(--muted);cursor:pointer}
+.chords .drumbox input[type=range]{width:6rem}
 .builder{margin-top:2rem;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:1rem 1.2rem}
 .builder h2{font:700 1.5rem var(--cond);margin:0 0 .2rem}
 .slots{display:grid;gap:.45rem;margin:.8rem 0}
@@ -320,6 +321,10 @@ function renderSong() {
               g.name))),
           el("label", {class:"drumbox", title:T("Ersatz-Schlagzeug passend zum Genre (nicht das Original des Pedals)", "Stand-in drums for the genre (not the pedal's own drums)")},
             el("input", {type:"checkbox", "data-drums":pid, checked:true}), "Drums"),
+          el("label", {class:"drumbox", title:T("Lautstärke von Akkorden, Bass und Drums", "Volume of chords, bass and drums")},
+            T("Band", "Band"), el("input", {type:"range", min:"0", max:"200", step:"5", value:String(Math.round(bandVol * 100)),
+              "data-bandvol":"1", "aria-label":T("Band-Lautstärke", "Band volume"),
+              oninput: e => setBandVol(+e.target.value / 100)})),
           el("button", {"data-synth":`${pid}|0`, onclick: run(() => synthToggle(s.id, p, false, false)),
             title:T("Akkorde und Bass so anhören, wie sie in der MIDI-Datei stehen", "Hear chords and bass as they are in the MIDI file")}, T("Akkorde anhören", "Play chords")),
           hasAudio ? el("button", {"data-synth":`${pid}|1`, onclick: run(() => synthToggle(s.id, p, true, false)),
@@ -446,7 +451,15 @@ async function importWav(song, part, mode) {
 }
 
 // --- chord preview: plays the same notes as the MIDI export -----------------
-let synth = null;  // {ctx, key, raf}
+let synth = null;  // {ctx, key, raf, master, level}
+let bandVol = 1;
+try { bandVol = +(localStorage.getItem("trioBandVol") || 1) || 1; } catch (e) {}
+function setBandVol(v) {
+  bandVol = v;
+  try { localStorage.setItem("trioBandVol", String(v)); } catch (e) {}
+  for (const r of document.querySelectorAll("input[data-bandvol]")) r.value = Math.round(v * 100);
+  if (synth && synth.master) synth.master.gain.setTargetAtTime(synth.level * v, synth.ctx.currentTime, 0.05);
+}
 const audioBuffers = {};
 const mtof = n => 440 * Math.pow(2, (n - 69) / 12);
 function synthStop() {
@@ -674,7 +687,14 @@ async function synthToggle(songId, p, withAudio, half) {
     buffer = await ctx.decodeAudioData(audioBuffers[bk].slice(0));
   }
   const spb = 60 / h.tempo, t0 = ctx.currentTime + 0.15;
-  const master = ctx.createGain(); master.gain.value = withAudio ? 0.55 : 0.8; master.connect(ctx.destination);
+  // The band renders at about 0.25 RMS with gain 1; pedal recordings are much quieter
+  // (often 0.02-0.05). With a recording, set the band a little under the guitar.
+  let level = 0.3;
+  if (buffer) { const d = buffer.getChannelData(0); let e = 0;
+    for (let i = 0; i < d.length; i += 4) e += d[i] * d[i];
+    level = Math.min(0.6, Math.max(0.03, 0.75 * Math.sqrt(e / (d.length / 4)) / 0.25)); }
+  const master = ctx.createGain(); master.gain.value = level * bandVol; master.connect(ctx.destination);
+  synth.master = master; synth.level = level;
   const chordBus = ctx.createBiquadFilter(); chordBus.type = "lowpass"; chordBus.frequency.value = 2200; chordBus.connect(master);
   const bassBus = ctx.createGain(); bassBus.gain.value = 1.0; bassBus.connect(master);
   const voice = (freq, start, dur, type, bus, level, decay) => {
@@ -700,7 +720,7 @@ async function synthToggle(songId, p, withAudio, half) {
   }
   if (buffer) {
     const src = ctx.createBufferSource(), gain = ctx.createGain();
-    gain.gain.value = 0.9; src.buffer = buffer; src.connect(gain); gain.connect(ctx.destination); src.start(t0);
+    gain.gain.value = 1.0; src.buffer = buffer; src.connect(gain); gain.connect(ctx.destination); src.start(t0);
   }
   const total = h.beats * spb;
   const spans = document.querySelectorAll(`[data-seq="${songId}|${p.part}"] span`);
