@@ -29,6 +29,9 @@ trio --help               # the command line
 
 * **Read the card directly.** All 12 songs from `TRIOPLUS.DAT`, no TRIO
   Manager needed. The card is only read; the one exception is renaming.
+* **Lead sheet for JJazzLab.** Chords, time signatures and tempo as MusicXML;
+  open it in JJazzLab (File > Import songs) to have a different band play your
+  song. MuseScore and Band-in-a-Box read it too.
 * **Rename songs** on the card or in a `.tlsd` file. Only the name field is
   written (the pedal has no display; the names are what TRIO Manager and
   TrioTool show).

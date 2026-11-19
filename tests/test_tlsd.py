@@ -384,7 +384,7 @@ def test_cli_daw_package(tmp_path):
     out = tmp_path / "pkg"
     assert main(["daw", str(SONG_05), "-o", str(out), "--repeat", "2"]) == 0
     names = sorted(p.name for p in out.iterdir())
-    assert names == ["Gitarre.wav", "LIESMICH.txt", "Song (festes Tempo).mid", "Song.mid"]
+    assert names == ["Gitarre.wav", "LIESMICH.txt", "Song (festes Tempo).mid", "Song.mid", "Song.musicxml"]
     with wave.open(str(out / "Gitarre.wav")) as w:
         wav_seconds = w.getnframes() / w.getframerate()
     try:
@@ -403,3 +403,22 @@ def test_chord_edits():
     assert ed.chords[0].name == "Am" and ed.chords[0].beat == an.chords[0].beat
     with pytest.raises(TlsdError):
         apply_edits(an, [{"i": 99, "root": 0, "kind": 0}])
+
+
+def test_musicxml(tmp_path):
+    import xml.etree.ElementTree as ET
+    out = tmp_path / "s.musicxml"
+    assert main(["musicxml", str(SONG_05), "-o", str(out)]) == 0
+    root = ET.parse(out).getroot()
+    measures = root.findall("./part/measure")
+    song = Song.load(SONG_05)
+    from trioplus.analysis import analyse
+    ans = [analyse(p) for p in song.parts if p.trained]
+    assert len(measures) == sum(a.bars for a in ans)
+    # every measure is exactly one bar long
+    for m in measures:
+        beats = sum(int(d.text) for d in m.findall("./note/duration"))
+        assert beats in (3, 4)
+    marks = [r.text for r in root.iter("rehearsal")]
+    assert marks == [f"Part {p.number}" for p in song.parts if p.trained]
+    assert len(root.findall(".//harmony")) >= sum(len(a.chords) for a in ans)

@@ -97,7 +97,7 @@ def test_english(server, tmp_path):
     assert "does not exist" in json.loads(e.value.read())["error"]
     sid = call("/api/open", {"path": str(SONG_05)})["state"]["songs"][0]["id"]
     folder = Path(call("/api/export?lang=en", {"song": sid, "what": "daw"})["files"][0])
-    assert sorted(p.name for p in folder.iterdir()) == ["Guitar.wav", "README.txt", "Song (fixed tempo).mid", "Song.mid"]
+    assert sorted(p.name for p in folder.iterdir()) == ["Guitar.wav", "README.txt", "Song (fixed tempo).mid", "Song.mid", "Song.musicxml"]
     assert "song package" in (folder / "README.txt").read_text(encoding="utf-8")
 
 

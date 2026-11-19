@@ -8,6 +8,7 @@
     trio import-wav SONG PART WAV -o OUT [--mode replace|mix] [--gain G] [--loop]
     trio midi SONG... [-o DIR] [--half | --section N] [--repeat N]
     trio daw SONG [-o DIR] [--repeat N] [--no-drums]
+    trio musicxml SONG [-o OUT]           (lead sheet for JJazzLab)
     trio rename SONG NAME -o OUT
     trio gui [PATH...]                  (web interface, see trioplus/gui)
 
@@ -299,6 +300,17 @@ def cmd_daw(args) -> int:
     return 0
 
 
+def cmd_musicxml(args) -> int:
+    from .musicxml import song_lead_sheet
+
+    song = Song.load(args.song)
+    out = Path(args.output) if args.output else args.song.with_suffix(".musicxml")
+    _check_output(out, [args.song], args.force)
+    out.write_bytes(song_lead_sheet(song, song.name, args.repeat, args.section))
+    _emit({"file": str(out)}, args.json, f"wrote {out}")
+    return 0
+
+
 def cmd_rename(args) -> int:
     song = Song.load(args.song)
     song.name = args.name
@@ -418,6 +430,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-drums", action="store_true")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_daw)
+
+    p = common(sub.add_parser("musicxml", help="lead sheet (chords, time signatures, tempo) for JJazzLab, MuseScore ..."))
+    p.add_argument("song", type=Path)
+    p.add_argument("-o", "--output", type=Path)
+    p.add_argument("--repeat", type=int, default=1, help="play each part this often")
+    p.add_argument("--section", type=int, choices=range(4), help="analysis section 0-3 (default: the pedal's choice)")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=cmd_musicxml)
 
     p = common(sub.add_parser("rename", help="write a copy of a song with a new name"))
     p.add_argument("song", type=Path)

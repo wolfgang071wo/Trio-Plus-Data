@@ -384,6 +384,12 @@ class Library:
                 written.append(str(out))
             if not written:
                 raise TlsdError("Keine Akkorde gefunden")
+        elif what == "musicxml":
+            from ..musicxml import song_lead_sheet
+            out = self._out(f"{base}.musicxml")
+            out.write_bytes(song_lead_sheet(song, info["name"], repeats=max(1, min(16, int(repeats))),
+                                            edits=edits))
+            written.append(str(out))
         elif what == "daw":
             from .. import __version__ as ver
             from ..daw import song_package

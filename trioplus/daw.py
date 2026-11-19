@@ -13,6 +13,7 @@ import wave
 from pathlib import Path
 
 from .analysis import analyse, apply_edits, part_seconds
+from .musicxml import lead_sheet
 from .midi import build_song_midi
 from .tlsd import SAMPLE_RATE, SAMPLE_WIDTH, Song, TlsdError
 
@@ -29,6 +30,10 @@ Song (festes Tempo).mid     Dieselben Noten bei festen 120 BPM, jede Note an
                             passendes Taktraster.
 
 Alle Dateien beginnen am Anfang und laufen synchron.
+
+Song.musicxml               Akkordblatt (Akkorde, Taktarten, Tempo) für
+                            JJazzLab (Datei > Songs importieren), MuseScore
+                            oder Band-in-a-Box.
 
 Ardour: Neue Session mit 44,1 kHz anlegen, dann Sitzung > Importieren,
 Position "Sitzungsanfang". Gitarre.wav importieren. Dann Song.mid mit der
@@ -59,6 +64,10 @@ Song (fixed tempo).mid      The same notes at a fixed 120 BPM, every note at
                             a matching bar grid.
 
 All files start at the beginning and run in sync.
+
+Song.musicxml               Lead sheet (chords, time signatures, tempo) for
+                            JJazzLab (File > Import songs), MuseScore or
+                            Band-in-a-Box.
 
 Ardour: create a new session at 44.1 kHz, then Session > Import, position
 "session start". Import Guitar.wav. Then import Song.mid with the option
@@ -130,6 +139,9 @@ def song_package(song: Song, outdir: Path, name: str, repeats: int = 1, drums: b
     mid_path = outdir / "Song.mid"
     mid_path.write_bytes(build_song_midi(spec, name))
     (outdir / L["fixed"]).write_bytes(build_song_midi(spec, name, fixed_tempo=120.0))
+    lead = [(e["label"], e["an"], e["tempo"], e["repeats"]) for e in playable if e["an"].chords]
+    if lead:
+        (outdir / "Song.musicxml").write_bytes(lead_sheet(lead, name))
 
     lines = []
     t = 0.0

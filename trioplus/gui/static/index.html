@@ -269,6 +269,11 @@ function renderSong() {
           title:T("Ordner mit Gitarre.wav und Song.mid (Akkorde, Bass, Drums), synchron, für Ardour, Reaper und andere DAWs",
             "Folder with Guitar.wav and Song.mid (chords, bass, drums), in sync, for Ardour, Reaper and other DAWs")},
           T("Für DAW exportieren", "Export for DAW"))),
+      el("button", {onclick: run(async () => { const r = await api("/api/export", {song:s.id, what:"musicxml", edits: editsFor(s)});
+          status(`${T("Gespeichert", "Saved")}: ${r.files[0]}`, {reveal:true}); }),
+        title:T("Akkordblatt mit Akkorden, Taktarten und Tempo als MusicXML. In JJazzLab über Datei > Songs importieren öffnen; geht auch mit MuseScore und Band-in-a-Box.",
+          "Lead sheet with chords, time signatures and tempo as MusicXML. Open it in JJazzLab with File > Import songs; also works with MuseScore and Band-in-a-Box.")},
+        T("Für JJazzLab (MusicXML)", "For JJazzLab (MusicXML)")),
       el("button", {class:"primary", onclick: run(() => doExport({song:s.id, what:"tlsd"}))}, T("Als .tlsd speichern", "Save as .tlsd"))) : null);
   const face = el("div", {class:"face"});
   if (!s.parts.some(p => p.trained)) face.append(el("p", {class:"note"}, T("In diesem Song ist nichts aufgenommen.", "Nothing is recorded in this song.")));
